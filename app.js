@@ -16,17 +16,12 @@ const state = {
 	startMarker: null,
 	endMarker: null,
 	showPreview: true,
-	currentRouteIndex: 0,
-	lastSpokenInstruction: null,
-	speechEnabled: true,
-	instructions: [],
 };
 
 // Constants
 const LOOK_AHEAD_DISTANCE = 1609.34; // 1 mile in meters
 const START_POINT_THRESHOLD = 50; // 50 meters to consider "reached start"
 const OSRM_API = "https://router.project-osrm.org/route/v1/driving/";
-const INSTRUCTION_DISTANCES = [500, 250, 100, 50]; // Distances to announce in meters
 
 // Initialize the application
 document.addEventListener("DOMContentLoaded", () => {
@@ -40,7 +35,6 @@ function initializeEventListeners() {
 	const enableLocationBtn = document.getElementById("enable-location-btn");
 	const cancelLocationBtn = document.getElementById("cancel-location-btn");
 	const togglePreviewButton = document.getElementById("toggle-preview-button");
-	const speechButton = document.getElementById("speech-button");
 
 	fileInput.addEventListener("change", handleFileUpload);
 	centerButton.addEventListener("click", centerMapOnUser);
@@ -48,7 +42,6 @@ function initializeEventListeners() {
 	enableLocationBtn.addEventListener("click", requestLocationPermission);
 	cancelLocationBtn.addEventListener("click", closeLocationModal);
 	togglePreviewButton.addEventListener("click", togglePreviewRoute);
-	speechButton.addEventListener("click", toggleSpeech);
 }
 
 // Toggle Preview Route
@@ -67,22 +60,6 @@ function togglePreviewRoute() {
 	// Update the route display
 	if (state.isNavigating && state.userPosition) {
 		updateNavigation();
-	}
-}
-
-// Toggle Speech Instructions
-function toggleSpeech() {
-	state.speechEnabled = !state.speechEnabled;
-
-	const button = document.getElementById("speech-button");
-	if (state.speechEnabled) {
-		button.style.opacity = "1";
-		button.title = "Voice instructions: ON";
-		speakInstruction("Voice instructions enabled");
-	} else {
-		button.style.opacity = "0.5";
-		button.title = "Voice instructions: OFF";
-		window.speechSynthesis.cancel(); // Stop any ongoing speech
 	}
 }
 
@@ -106,11 +83,6 @@ async function handleFileUpload(event) {
 		}
 
 		state.gpxRoute = gpxData;
-
-		// Generate turn-by-turn instructions for the route
-		state.instructions = generateInstructions(gpxData);
-		console.log(`Generated ${state.instructions.length} navigation instructions`);
-
 		document.getElementById(
 			"file-info"
 		).textContent = `✓ ${file.name} loaded (${gpxData.length} points)`;
@@ -397,7 +369,6 @@ async function updateNavigation() {
 		state.hasReachedStart = true;
 		state.approachRoute = [];
 		updateStatusText("Following GPX route");
-		speakInstruction("Starting GPX route");
 	}
 
 	// If not at start, get route to start
@@ -409,16 +380,12 @@ async function updateNavigation() {
 	} else {
 		// Following GPX route
 		const progress = findNearestPointOnRoute(state.userPosition, state.gpxRoute);
-		state.currentRouteIndex = progress.index;
 		const remainingDistance = calculateRemainingDistance(
 			progress.index,
 			state.gpxRoute
 		);
 		updateStatusText(`On route - ${formatDistance(remainingDistance)} remaining`);
 		updateVisibleRoute(progress.index);
-
-		// Check for upcoming instructions
-		checkAndSpeakInstructions(state.userPosition, state.gpxRoute, progress.index);
 	}
 }
 
@@ -625,131 +592,6 @@ function findNearestPointOnRoute(position, route) {
 }
 
 // Calculate Distance Between Two Points (Haversine)
-// Calculate bearing between two points
-function calculateBearing(point1, point2) {
-	const φ1 = (point1[0] * Math.PI) / 180;
-	const φ2 = (point2[0] * Math.PI) / 180;
-	const Δλ = ((point2[1] - point1[1]) * Math.PI) / 180;
-
-	const y = Math.sin(Δλ) * Math.cos(φ2);
-	const x =
-		Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-	const θ = Math.atan2(y, x);
-
-	return ((θ * 180) / Math.PI + 360) % 360; // Convert to degrees (0-360)
-}
-
-// Detect turn type based on angle difference
-function detectTurnType(angle) {
-	// Normalize angle to -180 to 180
-	while (angle > 180) angle -= 360;
-	while (angle < -180) angle += 360;
-
-	const absAngle = Math.abs(angle);
-
-	if (absAngle < 20) return { type: "straight", direction: "straight ahead" };
-	if (absAngle < 60)
-		return angle > 0
-			? { type: "slight-right", direction: "slightly right" }
-			: { type: "slight-left", direction: "slightly left" };
-	if (absAngle < 120)
-		return angle > 0
-			? { type: "right", direction: "right" }
-			: { type: "left", direction: "left" };
-	return angle > 0
-		? { type: "sharp-right", direction: "sharp right" }
-		: { type: "sharp-left", direction: "sharp left" };
-}
-
-// Generate navigation instructions
-function generateInstructions(route) {
-	const instructions = [];
-	let cumulativeDistance = 0;
-
-	for (let i = 0; i < route.length - 2; i++) {
-		const bearing1 = calculateBearing(route[i], route[i + 1]);
-		const bearing2 = calculateBearing(route[i + 1], route[i + 2]);
-		const angleDiff = bearing2 - bearing1;
-		const turnInfo = detectTurnType(angleDiff);
-
-		// Only add significant turns (not straight ahead)
-		if (turnInfo.type !== "straight") {
-			const distanceToTurn = calculateDistance(route[i], route[i + 1]);
-			cumulativeDistance += distanceToTurn;
-
-			instructions.push({
-				index: i + 1,
-				distance: cumulativeDistance,
-				type: turnInfo.type,
-				direction: turnInfo.direction,
-				text: `Turn ${turnInfo.direction}`,
-			});
-		} else {
-			cumulativeDistance += calculateDistance(route[i], route[i + 1]);
-		}
-	}
-
-	return instructions;
-}
-
-// Speak instruction using Web Speech API
-function speakInstruction(text) {
-	if (!state.speechEnabled || !("speechSynthesis" in window)) return;
-
-	// Cancel any ongoing speech
-	window.speechSynthesis.cancel();
-
-	const utterance = new SpeechSynthesisUtterance(text);
-	utterance.rate = 0.9;
-	utterance.pitch = 1.0;
-	utterance.volume = 1.0;
-
-	window.speechSynthesis.speak(utterance);
-}
-
-// Check for upcoming instructions and speak them
-function checkAndSpeakInstructions(userPos, route, routeIndex) {
-	if (!state.speechEnabled || route.length === 0) return;
-
-	// Calculate distance from user to current route point
-	let distanceToNext = 0;
-	for (let i = routeIndex; i < route.length - 1; i++) {
-		const segmentDistance = calculateDistance(route[i], route[i + 1]);
-		distanceToNext += segmentDistance;
-
-		// Find instructions near this segment
-		const instruction = state.instructions.find((inst) => inst.index === i + 1);
-
-		if (instruction) {
-			// Check if we should announce this instruction
-			for (const announceDistance of INSTRUCTION_DISTANCES) {
-				const instructionKey = `${instruction.index}-${announceDistance}`;
-
-				if (
-					distanceToNext <= announceDistance &&
-					distanceToNext > announceDistance - 50
-				) {
-					// Prevent repeating the same instruction
-					if (state.lastSpokenInstruction !== instructionKey) {
-						const distanceText =
-							announceDistance > 100
-								? `In ${announceDistance} meters`
-								: `In ${announceDistance} meters`;
-
-						const fullInstruction = `${distanceText}, ${instruction.text.toLowerCase()}`;
-						speakInstruction(fullInstruction);
-						state.lastSpokenInstruction = instructionKey;
-						return;
-					}
-				}
-			}
-		}
-
-		// Stop checking after 1km
-		if (distanceToNext > 1000) break;
-	}
-}
-
 function calculateDistance(point1, point2) {
 	const R = 6371e3; // Earth's radius in meters
 	const φ1 = (point1[0] * Math.PI) / 180;
@@ -807,11 +649,6 @@ function resetApp() {
 		state.watchId = null;
 	}
 
-	// Stop any ongoing speech
-	if ("speechSynthesis" in window) {
-		window.speechSynthesis.cancel();
-	}
-
 	// Clear map
 	if (state.map) {
 		state.map.remove();
@@ -831,9 +668,6 @@ function resetApp() {
 	state.autoCenterEnabled = true;
 	state.startMarker = null;
 	state.endMarker = null;
-	state.currentRouteIndex = 0;
-	state.lastSpokenInstruction = null;
-	state.instructions = [];
 
 	// Reset UI
 	document.getElementById("navigation-section").classList.add("hidden");
