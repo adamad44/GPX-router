@@ -16,6 +16,8 @@ const state = {
 	startMarker: null,
 	endMarker: null,
 	showPreview: true,
+	previewMap: null,
+	selectedRouteFile: null,
 };
 
 // Constants
@@ -23,9 +25,26 @@ const LOOK_AHEAD_DISTANCE = 1609.34; // 1 mile in meters
 const START_POINT_THRESHOLD = 50; // 50 meters to consider "reached start"
 const OSRM_API = "https://router.project-osrm.org/route/v1/driving/";
 
+// Preset Routes
+const PRESET_ROUTES = [
+	"Farnborough 07.0922.gpx",
+	"Farnborough 1.0921.gpx",
+	"Farnborough 10.0921.gpx",
+	"Farnborough 11.0921.gpx",
+	"Farnborough 12.0822.gpx",
+	"Farnborough 2.1121.gpx",
+	"Farnborough 3.0122.gpx",
+	"Farnborough 4.0322.gpx",
+	"Farnborough-05.2203 (1).gpx",
+	"Farnborough-06.2402.gpx",
+	"Farnborough-08.2402.gpx",
+	"Farnborough-09.2310.gpx",
+];
+
 // Initialize the application
 document.addEventListener("DOMContentLoaded", () => {
 	initializeEventListeners();
+	loadPresetRoutes();
 });
 
 function initializeEventListeners() {
@@ -35,6 +54,8 @@ function initializeEventListeners() {
 	const enableLocationBtn = document.getElementById("enable-location-btn");
 	const cancelLocationBtn = document.getElementById("cancel-location-btn");
 	const togglePreviewButton = document.getElementById("toggle-preview-button");
+	const closePreviewBtn = document.getElementById("close-preview-btn");
+	const loadRouteBtn = document.getElementById("load-route-btn");
 
 	fileInput.addEventListener("change", handleFileUpload);
 	centerButton.addEventListener("click", centerMapOnUser);
@@ -42,6 +63,8 @@ function initializeEventListeners() {
 	enableLocationBtn.addEventListener("click", requestLocationPermission);
 	cancelLocationBtn.addEventListener("click", closeLocationModal);
 	togglePreviewButton.addEventListener("click", togglePreviewRoute);
+	closePreviewBtn.addEventListener("click", closeRoutePreview);
+	loadRouteBtn.addEventListener("click", loadSelectedRoute);
 }
 
 // Toggle Preview Route
@@ -61,6 +84,122 @@ function togglePreviewRoute() {
 	if (state.isNavigating && state.userPosition) {
 		updateNavigation();
 	}
+}
+
+// Load Preset Routes into Grid
+function loadPresetRoutes() {
+	const routeGrid = document.getElementById("route-grid");
+	
+	PRESET_ROUTES.forEach(routeName => {
+		const card = document.createElement("div");
+		card.className = "route-card";
+		card.innerHTML = `<div class="route-card-name">${routeName.replace('.gpx', '')}</div>`;
+		card.addEventListener("click", () => showRoutePreview(routeName));
+		routeGrid.appendChild(card);
+	});
+}
+
+// Show Route Preview
+async function showRoutePreview(routeName) {
+	try {
+		const response = await fetch(`routes/${routeName}`);
+		const gpxText = await response.text();
+		const points = parseGPX(gpxText);
+		
+		if (points.length === 0) {
+			alert("No route found in this GPX file.");
+			return;
+		}
+		
+		// Store selected route
+		state.selectedRouteFile = { name: routeName, points: points };
+		
+		// Show modal
+		document.getElementById("route-preview-modal").classList.remove("hidden");
+		document.getElementById("preview-route-name").textContent = routeName.replace('.gpx', '');
+		
+		// Calculate distance
+		let totalDistance = 0;
+		for (let i = 1; i < points.length; i++) {
+			totalDistance += calculateDistance(points[i - 1], points[i]);
+		}
+		
+		document.getElementById("preview-distance").textContent = formatDistance(totalDistance);
+		document.getElementById("preview-points").textContent = points.length;
+		
+		// Initialize preview map
+		setTimeout(() => {
+			if (state.previewMap) {
+				state.previewMap.remove();
+			}
+			
+			state.previewMap = L.map("preview-map", {
+				zoomControl: true,
+				attributionControl: false,
+			});
+			
+			L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+				maxZoom: 19,
+			}).addTo(state.previewMap);
+			
+			// Draw route
+			const polyline = L.polyline(points, {
+				color: "#667eea",
+				weight: 4,
+				opacity: 0.8,
+			}).addTo(state.previewMap);
+			
+			// Add start/end markers
+			const startIcon = L.divIcon({
+				className: "custom-marker",
+				html: `<div style="background: #28a745; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white;"></div>`,
+				iconSize: [20, 20],
+				iconAnchor: [10, 10],
+			});
+			
+			const endIcon = L.divIcon({
+				className: "custom-marker",
+				html: `<div style="background: #dc3545; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white;"></div>`,
+				iconSize: [20, 20],
+				iconAnchor: [10, 10],
+			});
+			
+			L.marker(points[0], { icon: startIcon }).addTo(state.previewMap);
+			L.marker(points[points.length - 1], { icon: endIcon }).addTo(state.previewMap);
+			
+			// Fit bounds
+			state.previewMap.fitBounds(polyline.getBounds(), { padding: [20, 20] });
+		}, 100);
+		
+	} catch (error) {
+		console.error("Error loading route preview:", error);
+		alert("Error loading route preview.");
+	}
+}
+
+// Close Route Preview
+function closeRoutePreview() {
+	document.getElementById("route-preview-modal").classList.add("hidden");
+	if (state.previewMap) {
+		state.previewMap.remove();
+		state.previewMap = null;
+	}
+	state.selectedRouteFile = null;
+}
+
+// Load Selected Route
+function loadSelectedRoute() {
+	if (!state.selectedRouteFile) return;
+	
+	state.gpxRoute = state.selectedRouteFile.points;
+	closeRoutePreview();
+	
+	document.getElementById("file-info").textContent = 
+		`✓ ${state.selectedRouteFile.name} loaded (${state.selectedRouteFile.points.length} points)`;
+	
+	setTimeout(() => {
+		startNavigation();
+	}, 500);
 }
 
 // File Upload Handler
@@ -546,16 +685,15 @@ function displayPreviewRoute(route) {
 	if (route.length > 0) {
 		state.previewRoutePolyline = L.polyline(route, {
 			color: "#7C3AED",
-			weight: 4,
-			opacity: 0.3,
+			weight: 6,
+			opacity: 0.8,
 			lineJoin: "round",
 			lineCap: "round",
-			dashArray: "8, 8",
 		}).addTo(state.map);
 	}
 }
 
-// Display Preview Route for Approach (transparent, blue)
+// Display Preview Route for Approach (solid, blue)
 function displayPreviewRouteApproach(route) {
 	// Remove existing preview route
 	if (state.previewRoutePolyline) {
@@ -566,11 +704,10 @@ function displayPreviewRouteApproach(route) {
 	if (route.length > 0) {
 		state.previewRoutePolyline = L.polyline(route, {
 			color: "#4285F4",
-			weight: 4,
-			opacity: 0.3,
+			weight: 6,
+			opacity: 0.8,
 			lineJoin: "round",
 			lineCap: "round",
-			dashArray: "8, 8",
 		}).addTo(state.map);
 	}
 }

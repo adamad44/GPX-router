@@ -19,10 +19,46 @@
 			<div id="upload-section" class="section">
 				<div class="upload-container">
 					<h1>GPX Navigator</h1>
-					<p>Upload your GPX file to start navigation</p>
-					<input type="file" id="gpx-file-input" accept=".gpx" />
-					<label for="gpx-file-input" class="upload-button">Choose GPX File</label>
-					<div id="file-info"></div>
+					<p>Choose a preset route or upload your own GPX file</p>
+					
+					<!-- Preset Routes -->
+					<div class="preset-routes">
+						<h3>Preset Routes</h3>
+						<div id="route-grid" class="route-grid">
+							<!-- Routes will be loaded here dynamically -->
+						</div>
+					</div>
+					
+					<div class="divider">
+						<span>OR</span>
+					</div>
+					
+					<!-- Custom Upload -->
+					<div class="custom-upload">
+						<input type="file" id="gpx-file-input" accept=".gpx" />
+						<label for="gpx-file-input" class="upload-button">Upload Your Own GPX</label>
+						<div id="file-info"></div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Route Preview Modal -->
+			<div id="route-preview-modal" class="modal hidden">
+				<div class="modal-content route-preview-content">
+					<button id="close-preview-btn" class="close-button">&times;</button>
+					<h2 id="preview-route-name"></h2>
+					<div id="preview-map"></div>
+					<div class="preview-stats">
+						<div class="stat">
+							<span class="stat-label">Distance:</span>
+							<span id="preview-distance" class="stat-value">-</span>
+						</div>
+						<div class="stat">
+							<span class="stat-label">Points:</span>
+							<span id="preview-points" class="stat-value">-</span>
+						</div>
+					</div>
+					<button id="load-route-btn" class="modal-button primary">Load This Route</button>
 				</div>
 			</div>
 
