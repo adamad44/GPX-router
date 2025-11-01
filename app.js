@@ -131,66 +131,80 @@ async function loadPresetRoutes() {
 		loadButton.disabled = true;
 		loadButton.textContent = "Loading…";
 
-		try {
-			const response = await fetch(`routes/${route.file}`);
-			if (!response.ok) {
-				throw new Error(`HTTP ${response.status}`);
+		// Load route data asynchronously (don't block other cards)
+		(async () => {
+			try {
+				const response = await fetch(`routes/${route.file}`);
+				if (!response.ok) {
+					throw new Error(`HTTP ${response.status}`);
+				}
+
+				const gpxText = await response.text();
+				const points = parseGPX(gpxText);
+
+				if (points.length === 0) {
+					throw new Error("No route points found");
+				}
+
+				state.presetRoutes[route.id] = {
+					file: route.file,
+					points,
+					displayName,
+					routeNumber,
+				};
+
+				const totalDistance = calculateRouteDistance(points);
+				document.getElementById(`route-distance-${route.id}`).textContent =
+					formatDistance(totalDistance);
+				document.getElementById(`route-points-${route.id}`).textContent =
+					points.length;
+
+				// Wait for DOM to be ready, then initialize map
+				setTimeout(() => {
+					const mapElement = document.getElementById(`route-map-${route.id}`);
+					if (!mapElement) {
+						console.error(`Map element not found for route ${route.id}`);
+						return;
+					}
+
+					const previewMap = L.map(`route-map-${route.id}`, {
+						attributionControl: false,
+						zoomControl: false,
+						dragging: false,
+						scrollWheelZoom: false,
+						doubleClickZoom: false,
+						boxZoom: false,
+						keyboard: false,
+					});
+
+					L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+						maxZoom: 19,
+					}).addTo(previewMap);
+
+					const polyline = L.polyline(points, {
+						color: "#667eea",
+						weight: 4,
+						opacity: 0.9,
+					}).addTo(previewMap);
+
+					previewMap.fitBounds(polyline.getBounds(), { padding: [10, 10] });
+					setTimeout(() => previewMap.invalidateSize(), 100);
+
+					state.previewMaps[route.id] = previewMap;
+
+					loadButton.disabled = false;
+					loadButton.textContent = `Load Route ${routeNumber}`;
+				}, 50);
+			} catch (error) {
+				console.error(`Error loading preset route ${route.file}:`, error);
+				const distEl = document.getElementById(`route-distance-${route.id}`);
+				const pointsEl = document.getElementById(`route-points-${route.id}`);
+				if (distEl) distEl.textContent = "Error";
+				if (pointsEl) pointsEl.textContent = "-";
+				loadButton.disabled = true;
+				loadButton.textContent = "Unavailable";
 			}
-
-			const gpxText = await response.text();
-			const points = parseGPX(gpxText);
-
-			if (points.length === 0) {
-				throw new Error("No route points found");
-			}
-
-			state.presetRoutes[route.id] = {
-				file: route.file,
-				points,
-				displayName,
-				routeNumber,
-			};
-
-			const totalDistance = calculateRouteDistance(points);
-			document.getElementById(`route-distance-${route.id}`).textContent =
-				formatDistance(totalDistance);
-			document.getElementById(`route-points-${route.id}`).textContent =
-				points.length;
-
-			const previewMap = L.map(`route-map-${route.id}`, {
-				attributionControl: false,
-				zoomControl: false,
-				dragging: false,
-				scrollWheelZoom: false,
-				doubleClickZoom: false,
-				boxZoom: false,
-				keyboard: false,
-			});
-
-			L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-				maxZoom: 19,
-			}).addTo(previewMap);
-
-			const polyline = L.polyline(points, {
-				color: "#667eea",
-				weight: 4,
-				opacity: 0.9,
-			}).addTo(previewMap);
-
-			previewMap.fitBounds(polyline.getBounds(), { padding: [10, 10] });
-			setTimeout(() => previewMap.invalidateSize(), 0);
-
-			state.previewMaps[route.id] = previewMap;
-
-			loadButton.disabled = false;
-			loadButton.textContent = `Load Route ${routeNumber}`;
-		} catch (error) {
-			console.error(`Error loading preset route ${route.file}:`, error);
-			document.getElementById(`route-distance-${route.id}`).textContent = "Error";
-			document.getElementById(`route-points-${route.id}`).textContent = "-";
-			loadButton.disabled = true;
-			loadButton.textContent = "Unavailable";
-		}
+		})();
 
 		loadButton.addEventListener("click", () => loadPresetRoute(route.id));
 	}
