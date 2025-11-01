@@ -103,40 +103,106 @@ body {
 
 .route-grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-	gap: 0.75rem;
-	max-height: 300px;
+	grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+	gap: 1rem;
+	max-height: 400px;
 	overflow-y: auto;
-	padding: 0.5rem;
+	padding: 0.75rem;
 	background: #f8f9fa;
-	border-radius: 10px;
+	border-radius: 12px;
 }
 
 .route-card {
 	background: white;
 	border: 2px solid #e0e0e0;
-	border-radius: 10px;
+	border-radius: 16px;
 	padding: 1rem;
-	cursor: pointer;
 	transition: all 0.2s;
-	text-align: center;
-	min-height: 80px;
 	display: flex;
 	flex-direction: column;
-	justify-content: center;
+	gap: 0.75rem;
 }
 
 .route-card:hover {
 	border-color: #667eea;
-	transform: translateY(-2px);
-	box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+	box-shadow: 0 6px 18px rgba(102, 126, 234, 0.18);
 }
 
-.route-card-name {
-	font-size: 0.9rem;
+.route-card-header {
+	display: flex;
+	gap: 0.75rem;
+	align-items: center;
+}
+
+.route-number {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	border-radius: 12px;
+	background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+	color: white;
+	font-weight: 700;
+	font-size: 1rem;
+	flex-shrink: 0;
+}
+
+.route-meta {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+
+.route-title {
+	font-size: 1rem;
 	font-weight: 600;
 	color: #333;
-	word-wrap: break-word;
+}
+
+.route-filename {
+	font-size: 0.85rem;
+	color: #666;
+	word-break: break-word;
+}
+
+.route-preview-map {
+	height: 160px;
+	border-radius: 12px;
+	overflow: hidden;
+	border: 1px solid #e0e0e0;
+}
+
+.route-card-stats {
+	display: flex;
+	justify-content: space-between;
+	background: #f1f4ff;
+	border-radius: 10px;
+	padding: 0.5rem 0.75rem;
+}
+
+.route-card-button {
+	margin-top: auto;
+	padding: 0.75rem 1rem;
+	background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+	color: white;
+	border: none;
+	border-radius: 12px;
+	font-size: 0.95rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+}
+
+.route-card-button:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+	box-shadow: none;
+}
+
+.route-card-button:not(:disabled):hover {
+	transform: translateY(-1px);
+	box-shadow: 0 5px 18px rgba(102, 126, 234, 0.35);
 }
 
 .divider {
@@ -214,13 +280,13 @@ body {
 .stat {
 	display: flex;
 	flex-direction: column;
-	align-items: center;
+	align-items: flex-start;
+	gap: 0.1rem;
 }
 
 .stat-label {
 	font-size: 0.85rem;
 	color: #666;
-	margin-bottom: 0.25rem;
 }
 
 .stat-value {

@@ -16,8 +16,8 @@ const state = {
 	startMarker: null,
 	endMarker: null,
 	showPreview: true,
-	previewMap: null,
-	selectedRouteFile: null,
+	previewMaps: {},
+	presetRoutes: {},
 };
 
 // Constants
@@ -27,18 +27,18 @@ const OSRM_API = "https://router.project-osrm.org/route/v1/driving/";
 
 // Preset Routes
 const PRESET_ROUTES = [
-	"Farnborough 07.0922.gpx",
-	"Farnborough 1.0921.gpx",
-	"Farnborough 10.0921.gpx",
-	"Farnborough 11.0921.gpx",
-	"Farnborough 12.0822.gpx",
-	"Farnborough 2.1121.gpx",
-	"Farnborough 3.0122.gpx",
-	"Farnborough 4.0322.gpx",
-	"Farnborough-05.2203 (1).gpx",
-	"Farnborough-06.2402.gpx",
-	"Farnborough-08.2402.gpx",
-	"Farnborough-09.2310.gpx",
+	{ id: 1, file: "Farnborough 07.0922.gpx" },
+	{ id: 2, file: "Farnborough 1.0921.gpx" },
+	{ id: 3, file: "Farnborough 10.0921.gpx" },
+	{ id: 4, file: "Farnborough 11.0921.gpx" },
+	{ id: 5, file: "Farnborough 12.0822.gpx" },
+	{ id: 6, file: "Farnborough 2.1121.gpx" },
+	{ id: 7, file: "Farnborough 3.0122.gpx" },
+	{ id: 8, file: "Farnborough 4.0322.gpx" },
+	{ id: 9, file: "Farnborough-05.2203 (1).gpx" },
+	{ id: 10, file: "Farnborough-06.2402.gpx" },
+	{ id: 11, file: "Farnborough-08.2402.gpx" },
+	{ id: 12, file: "Farnborough-09.2310.gpx" },
 ];
 
 // Initialize the application
@@ -54,8 +54,6 @@ function initializeEventListeners() {
 	const enableLocationBtn = document.getElementById("enable-location-btn");
 	const cancelLocationBtn = document.getElementById("cancel-location-btn");
 	const togglePreviewButton = document.getElementById("toggle-preview-button");
-	const closePreviewBtn = document.getElementById("close-preview-btn");
-	const loadRouteBtn = document.getElementById("load-route-btn");
 
 	fileInput.addEventListener("change", handleFileUpload);
 	centerButton.addEventListener("click", centerMapOnUser);
@@ -63,8 +61,6 @@ function initializeEventListeners() {
 	enableLocationBtn.addEventListener("click", requestLocationPermission);
 	cancelLocationBtn.addEventListener("click", closeLocationModal);
 	togglePreviewButton.addEventListener("click", togglePreviewRoute);
-	closePreviewBtn.addEventListener("click", closeRoutePreview);
-	loadRouteBtn.addEventListener("click", loadSelectedRoute);
 }
 
 // Toggle Preview Route
@@ -86,129 +82,154 @@ function togglePreviewRoute() {
 	}
 }
 
-// Load Preset Routes into Grid
-function loadPresetRoutes() {
+// Load Preset Routes into Grid with inline previews
+async function loadPresetRoutes() {
 	const routeGrid = document.getElementById("route-grid");
+	if (!routeGrid) return;
 
-	PRESET_ROUTES.forEach((routeName) => {
+	Object.values(state.previewMaps || {}).forEach((mapInstance) => {
+		if (mapInstance && typeof mapInstance.remove === "function") {
+			mapInstance.remove();
+		}
+	});
+
+	routeGrid.innerHTML = "";
+	state.presetRoutes = {};
+	state.previewMaps = {};
+
+	for (const route of PRESET_ROUTES) {
+		const displayName = getRouteDisplayName(route.file);
+		const routeNumber = route.id.toString().padStart(2, "0");
+
 		const card = document.createElement("div");
 		card.className = "route-card";
-		card.innerHTML = `<div class="route-card-name">${routeName.replace(
-			".gpx",
-			""
-		)}</div>`;
-		card.addEventListener("click", () => showRoutePreview(routeName));
+		card.innerHTML = `
+			<div class="route-card-header">
+				<span class="route-number">${routeNumber}</span>
+				<div class="route-meta">
+					<div class="route-title">Route ${routeNumber}</div>
+					<div class="route-filename">${displayName}</div>
+				</div>
+			</div>
+			<div class="route-preview-map" id="route-map-${route.id}"></div>
+			<div class="route-card-stats">
+				<div class="stat">
+					<span class="stat-label">Distance</span>
+					<span class="stat-value" id="route-distance-${route.id}">Loading…</span>
+				</div>
+				<div class="stat">
+					<span class="stat-label">Points</span>
+					<span class="stat-value" id="route-points-${route.id}">-</span>
+				</div>
+			</div>
+			<button class="route-card-button" data-route-id="${route.id}">Load Route ${routeNumber}</button>
+		`;
+
 		routeGrid.appendChild(card);
-	});
-}
 
-// Show Route Preview
-async function showRoutePreview(routeName) {
-	try {
-		const response = await fetch(`routes/${routeName}`);
-		const gpxText = await response.text();
-		const points = parseGPX(gpxText);
+		const loadButton = card.querySelector(".route-card-button");
+		loadButton.disabled = true;
+		loadButton.textContent = "Loading…";
 
-		if (points.length === 0) {
-			alert("No route found in this GPX file.");
-			return;
-		}
-
-		// Store selected route
-		state.selectedRouteFile = { name: routeName, points: points };
-
-		// Show modal
-		document.getElementById("route-preview-modal").classList.remove("hidden");
-		document.getElementById("preview-route-name").textContent = routeName.replace(
-			".gpx",
-			""
-		);
-
-		// Calculate distance
-		let totalDistance = 0;
-		for (let i = 1; i < points.length; i++) {
-			totalDistance += calculateDistance(points[i - 1], points[i]);
-		}
-
-		document.getElementById("preview-distance").textContent =
-			formatDistance(totalDistance);
-		document.getElementById("preview-points").textContent = points.length;
-
-		// Initialize preview map
-		setTimeout(() => {
-			if (state.previewMap) {
-				state.previewMap.remove();
+		try {
+			const response = await fetch(`routes/${route.file}`);
+			if (!response.ok) {
+				throw new Error(`HTTP ${response.status}`);
 			}
 
-			state.previewMap = L.map("preview-map", {
-				zoomControl: true,
+			const gpxText = await response.text();
+			const points = parseGPX(gpxText);
+
+			if (points.length === 0) {
+				throw new Error("No route points found");
+			}
+
+			state.presetRoutes[route.id] = {
+				file: route.file,
+				points,
+				displayName,
+				routeNumber,
+			};
+
+			const totalDistance = calculateRouteDistance(points);
+			document.getElementById(`route-distance-${route.id}`).textContent =
+				formatDistance(totalDistance);
+			document.getElementById(`route-points-${route.id}`).textContent =
+				points.length;
+
+			const previewMap = L.map(`route-map-${route.id}`, {
 				attributionControl: false,
+				zoomControl: false,
+				dragging: false,
+				scrollWheelZoom: false,
+				doubleClickZoom: false,
+				boxZoom: false,
+				keyboard: false,
 			});
 
 			L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 				maxZoom: 19,
-			}).addTo(state.previewMap);
+			}).addTo(previewMap);
 
-			// Draw route
 			const polyline = L.polyline(points, {
 				color: "#667eea",
 				weight: 4,
-				opacity: 0.8,
-			}).addTo(state.previewMap);
+				opacity: 0.9,
+			}).addTo(previewMap);
 
-			// Add start/end markers
-			const startIcon = L.divIcon({
-				className: "custom-marker",
-				html: `<div style="background: #28a745; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white;"></div>`,
-				iconSize: [20, 20],
-				iconAnchor: [10, 10],
-			});
+			previewMap.fitBounds(polyline.getBounds(), { padding: [10, 10] });
+			setTimeout(() => previewMap.invalidateSize(), 0);
 
-			const endIcon = L.divIcon({
-				className: "custom-marker",
-				html: `<div style="background: #dc3545; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white;"></div>`,
-				iconSize: [20, 20],
-				iconAnchor: [10, 10],
-			});
+			state.previewMaps[route.id] = previewMap;
 
-			L.marker(points[0], { icon: startIcon }).addTo(state.previewMap);
-			L.marker(points[points.length - 1], { icon: endIcon }).addTo(
-				state.previewMap
-			);
+			loadButton.disabled = false;
+			loadButton.textContent = `Load Route ${routeNumber}`;
+		} catch (error) {
+			console.error(`Error loading preset route ${route.file}:`, error);
+			document.getElementById(`route-distance-${route.id}`).textContent = "Error";
+			document.getElementById(`route-points-${route.id}`).textContent = "-";
+			loadButton.disabled = true;
+			loadButton.textContent = "Unavailable";
+		}
 
-			// Fit bounds
-			state.previewMap.fitBounds(polyline.getBounds(), { padding: [20, 20] });
-		}, 100);
-	} catch (error) {
-		console.error("Error loading route preview:", error);
-		alert("Error loading route preview.");
+		loadButton.addEventListener("click", () => loadPresetRoute(route.id));
 	}
 }
 
-// Close Route Preview
-function closeRoutePreview() {
-	document.getElementById("route-preview-modal").classList.add("hidden");
-	if (state.previewMap) {
-		state.previewMap.remove();
-		state.previewMap = null;
-	}
-	state.selectedRouteFile = null;
+function getRouteDisplayName(fileName) {
+	return fileName
+		.replace(/\.gpx$/i, "")
+		.replace(/[-_]+/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
 }
 
-// Load Selected Route
-function loadSelectedRoute() {
-	if (!state.selectedRouteFile) return;
+function calculateRouteDistance(points) {
+	let total = 0;
+	for (let i = 1; i < points.length; i++) {
+		total += calculateDistance(points[i - 1], points[i]);
+	}
+	return total;
+}
 
-	state.gpxRoute = state.selectedRouteFile.points;
-	closeRoutePreview();
+function loadPresetRoute(routeId) {
+	const preset = state.presetRoutes[routeId];
+	if (!preset || !preset.points || preset.points.length === 0) {
+		alert("This route is unavailable. Please choose another or upload your own.");
+		return;
+	}
+
+	state.gpxRoute = [...preset.points];
+	state.hasReachedStart = false;
+	state.approachRoute = [];
 
 	document.getElementById(
 		"file-info"
-	).textContent = `✓ ${state.selectedRouteFile.name} loaded (${state.selectedRouteFile.points.length} points)`;
+	).textContent = `✓ Route ${preset.routeNumber} loaded (${preset.points.length} points)`;
 
 	setTimeout(() => {
 		startNavigation();
-	}, 500);
+	}, 200);
 }
 
 // File Upload Handler
@@ -820,4 +841,6 @@ function resetApp() {
 	document.getElementById("upload-section").classList.remove("hidden");
 	document.getElementById("gpx-file-input").value = "";
 	document.getElementById("file-info").textContent = "";
+
+	loadPresetRoutes();
 }
