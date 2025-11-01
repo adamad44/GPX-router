@@ -8,12 +8,14 @@ const state = {
 	approachRoute: [],
 	currentRoutePolyline: null,
 	visibleRoutePolyline: null,
+	previewRoutePolyline: null,
 	isNavigating: false,
 	hasReachedStart: false,
 	watchId: null,
 	autoCenterEnabled: true,
 	startMarker: null,
 	endMarker: null,
+	showPreview: true,
 };
 
 // Constants
@@ -32,12 +34,33 @@ function initializeEventListeners() {
 	const resetButton = document.getElementById("reset-button");
 	const enableLocationBtn = document.getElementById("enable-location-btn");
 	const cancelLocationBtn = document.getElementById("cancel-location-btn");
+	const togglePreviewButton = document.getElementById("toggle-preview-button");
 
 	fileInput.addEventListener("change", handleFileUpload);
 	centerButton.addEventListener("click", centerMapOnUser);
 	resetButton.addEventListener("click", resetApp);
 	enableLocationBtn.addEventListener("click", requestLocationPermission);
 	cancelLocationBtn.addEventListener("click", closeLocationModal);
+	togglePreviewButton.addEventListener("click", togglePreviewRoute);
+}
+
+// Toggle Preview Route
+function togglePreviewRoute() {
+	state.showPreview = !state.showPreview;
+	
+	const button = document.getElementById("toggle-preview-button");
+	if (state.showPreview) {
+		button.style.opacity = "1";
+		button.title = "Hide route preview";
+	} else {
+		button.style.opacity = "0.5";
+		button.title = "Show route preview";
+	}
+	
+	// Update the route display
+	if (state.isNavigating && state.userPosition) {
+		updateNavigation();
+	}
 }
 
 // File Upload Handler
@@ -381,16 +404,32 @@ async function updateApproachRoute() {
 			// Combine approach route with GPX route for seamless transition
 			const combinedRoute = [...state.approachRoute, ...state.gpxRoute];
 
-			// Show only look-ahead portion
+			// Show look-ahead portion (1 mile)
 			const visibleRoute = getLookAheadRoute(combinedRoute, 0);
-			displayRoute(visibleRoute, "#4285F4"); // Blue for approach
+			const previewRoute = getPreviewRoute(combinedRoute, 0);
+			
+			displayRoute(visibleRoute, "#4285F4", 0.8, 6);
+			
+			// Display preview if enabled
+			if (state.showPreview && previewRoute.length > 0) {
+				displayPreviewRouteApproach(previewRoute);
+			} else if (state.previewRoutePolyline) {
+				state.map.removeLayer(state.previewRoutePolyline);
+				state.previewRoutePolyline = null;
+			}
 		}
 	} catch (error) {
 		console.error("Error getting approach route:", error);
 		// Fallback: draw straight line to start
 		const combinedRoute = [state.userPosition, ...state.gpxRoute];
 		const visibleRoute = getLookAheadRoute(combinedRoute, 0);
-		displayRoute(visibleRoute, "#4285F4");
+		const previewRoute = getPreviewRoute(combinedRoute, 0);
+		
+		displayRoute(visibleRoute, "#4285F4", 0.8, 6);
+		
+		if (state.showPreview && previewRoute.length > 0) {
+			displayPreviewRouteApproach(previewRoute);
+		}
 	}
 }
 
@@ -417,7 +456,44 @@ async function getOSRMRoute(start, end) {
 // Update Visible Route (Look-ahead)
 function updateVisibleRoute(startIndex) {
 	const visibleRoute = getLookAheadRoute(state.gpxRoute, startIndex);
-	displayRoute(visibleRoute, "#7C3AED"); // Purple for GPX route
+	const previewRoute = getPreviewRoute(state.gpxRoute, startIndex);
+	
+	// Display main route (1 mile ahead)
+	displayRoute(visibleRoute, "#7C3AED", 0.8, 6);
+	
+	// Display preview route (rest of route, transparent)
+	if (state.showPreview && previewRoute.length > 0) {
+		displayPreviewRoute(previewRoute);
+	} else if (state.previewRoutePolyline) {
+		state.map.removeLayer(state.previewRoutePolyline);
+		state.previewRoutePolyline = null;
+	}
+}
+
+// Get Preview Route (everything after 1 mile)
+function getPreviewRoute(route, startIndex) {
+	if (route.length === 0) return [];
+
+	const result = [];
+	let totalDistance = 0;
+	let foundStartOfPreview = false;
+
+	for (let i = startIndex + 1; i < route.length; i++) {
+		const segmentDistance = calculateDistance(route[i - 1], route[i]);
+		totalDistance += segmentDistance;
+
+		// Once we've passed the look-ahead distance, start collecting preview points
+		if (totalDistance >= LOOK_AHEAD_DISTANCE) {
+			if (!foundStartOfPreview) {
+				// Add the last point of look-ahead route for continuity
+				result.push(route[i - 1]);
+				foundStartOfPreview = true;
+			}
+			result.push(route[i]);
+		}
+	}
+
+	return result;
 }
 
 // Get Look-ahead Route Segment
@@ -441,7 +517,7 @@ function getLookAheadRoute(route, startIndex) {
 }
 
 // Display Route on Map
-function displayRoute(route, color) {
+function displayRoute(route, color, opacity = 0.8, weight = 6) {
 	// Remove existing visible route
 	if (state.visibleRoutePolyline) {
 		state.map.removeLayer(state.visibleRoutePolyline);
@@ -451,10 +527,50 @@ function displayRoute(route, color) {
 	if (route.length > 0) {
 		state.visibleRoutePolyline = L.polyline(route, {
 			color: color,
-			weight: 6,
-			opacity: 0.8,
+			weight: weight,
+			opacity: opacity,
 			lineJoin: "round",
 			lineCap: "round",
+		}).addTo(state.map);
+	}
+}
+
+// Display Preview Route on Map (transparent)
+function displayPreviewRoute(route) {
+	// Remove existing preview route
+	if (state.previewRoutePolyline) {
+		state.map.removeLayer(state.previewRoutePolyline);
+	}
+
+	// Add new preview route
+	if (route.length > 0) {
+		state.previewRoutePolyline = L.polyline(route, {
+			color: "#7C3AED",
+			weight: 4,
+			opacity: 0.3,
+			lineJoin: "round",
+			lineCap: "round",
+			dashArray: "8, 8",
+		}).addTo(state.map);
+	}
+}
+
+// Display Preview Route for Approach (transparent, blue)
+function displayPreviewRouteApproach(route) {
+	// Remove existing preview route
+	if (state.previewRoutePolyline) {
+		state.map.removeLayer(state.previewRoutePolyline);
+	}
+
+	// Add new preview route
+	if (route.length > 0) {
+		state.previewRoutePolyline = L.polyline(route, {
+			color: "#4285F4",
+			weight: 4,
+			opacity: 0.3,
+			lineJoin: "round",
+			lineCap: "round",
+			dashArray: "8, 8",
 		}).addTo(state.map);
 	}
 }

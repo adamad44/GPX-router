@@ -31,7 +31,7 @@ body {
 	display: flex;
 	justify-content: center;
 	align-items: center;
-	background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+	background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
 }
 
 .upload-container {
@@ -148,6 +148,11 @@ body {
 
 .control-button:active {
 	transform: scale(0.95);
+}
+
+#toggle-preview-button {
+	bottom: 170px;
+	right: 20px;
 }
 
 #center-button {
