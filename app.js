@@ -9,6 +9,8 @@ const state = {
 	currentRoutePolyline: null,
 	visibleRoutePolyline: null,
 	previewRoutePolyline: null,
+	visibleRouteDecorator: null,
+	previewRouteDecorator: null,
 	isNavigating: false,
 	hasReachedStart: false,
 	watchId: null,
@@ -753,9 +755,12 @@ function getLookAheadRoute(route, startIndex) {
 
 // Display Route on Map
 function displayRoute(route, color, opacity = 0.8, weight = 6) {
-	// Remove existing visible route
+	// Remove existing visible route and decorator
 	if (state.visibleRoutePolyline) {
 		state.map.removeLayer(state.visibleRoutePolyline);
+	}
+	if (state.visibleRouteDecorator) {
+		state.map.removeLayer(state.visibleRouteDecorator);
 	}
 
 	// Add new route
@@ -767,14 +772,40 @@ function displayRoute(route, color, opacity = 0.8, weight = 6) {
 			lineJoin: "round",
 			lineCap: "round",
 		}).addTo(state.map);
+
+		// Add directional arrows to the route
+		state.visibleRouteDecorator = L.polylineDecorator(
+			state.visibleRoutePolyline,
+			{
+				patterns: [
+					{
+						offset: 50,
+						repeat: 100,
+						symbol: L.Symbol.arrowHead({
+							pixelSize: 12,
+							polygon: false,
+							pathOptions: {
+								color: color,
+								weight: 3,
+								opacity: opacity,
+								stroke: true,
+							},
+						}),
+					},
+				],
+			}
+		).addTo(state.map);
 	}
 }
 
 // Display Preview Route on Map (transparent)
 function displayPreviewRoute(route) {
-	// Remove existing preview route
+	// Remove existing preview route and decorator
 	if (state.previewRoutePolyline) {
 		state.map.removeLayer(state.previewRoutePolyline);
+	}
+	if (state.previewRouteDecorator) {
+		state.map.removeLayer(state.previewRouteDecorator);
 	}
 
 	// Add new preview route
@@ -786,14 +817,40 @@ function displayPreviewRoute(route) {
 			lineJoin: "round",
 			lineCap: "round",
 		}).addTo(state.map);
+
+		// Add directional arrows to the preview route
+		state.previewRouteDecorator = L.polylineDecorator(
+			state.previewRoutePolyline,
+			{
+				patterns: [
+					{
+						offset: 50,
+						repeat: 100,
+						symbol: L.Symbol.arrowHead({
+							pixelSize: 12,
+							polygon: false,
+							pathOptions: {
+								color: "#7C3AED",
+								weight: 3,
+								opacity: 0.8,
+								stroke: true,
+							},
+						}),
+					},
+				],
+			}
+		).addTo(state.map);
 	}
 }
 
 // Display Preview Route for Approach (solid, blue)
 function displayPreviewRouteApproach(route) {
-	// Remove existing preview route
+	// Remove existing preview route and decorator
 	if (state.previewRoutePolyline) {
 		state.map.removeLayer(state.previewRoutePolyline);
+	}
+	if (state.previewRouteDecorator) {
+		state.map.removeLayer(state.previewRouteDecorator);
 	}
 
 	// Add new preview route
@@ -805,6 +862,29 @@ function displayPreviewRouteApproach(route) {
 			lineJoin: "round",
 			lineCap: "round",
 		}).addTo(state.map);
+
+		// Add directional arrows to the approach route
+		state.previewRouteDecorator = L.polylineDecorator(
+			state.previewRoutePolyline,
+			{
+				patterns: [
+					{
+						offset: 50,
+						repeat: 100,
+						symbol: L.Symbol.arrowHead({
+							pixelSize: 12,
+							polygon: false,
+							pathOptions: {
+								color: "#4285F4",
+								weight: 3,
+								opacity: 0.8,
+								stroke: true,
+							},
+						}),
+					},
+				],
+			}
+		).addTo(state.map);
 	}
 }
 
@@ -913,6 +993,8 @@ function resetApp() {
 	state.approachRoute = [];
 	state.currentRoutePolyline = null;
 	state.visibleRoutePolyline = null;
+	state.visibleRouteDecorator = null;
+	state.previewRouteDecorator = null;
 	state.isNavigating = false;
 	state.hasReachedStart = false;
 	state.autoCenterEnabled = true;
