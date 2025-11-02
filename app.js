@@ -443,6 +443,10 @@ function initializeMap() {
 		attributionControl: true,
 		minZoom: 3,
 		maxZoom: 19,
+		rotate: true,
+		bearing: 0,
+		touchRotate: true,
+		rotateControl: false,
 	});
 
 	// Add OpenStreetMap tiles
@@ -624,6 +628,8 @@ function disableDeviceCompass() {
 }
 
 function onDeviceOrientation(event) {
+	if (!state.headingUpMode) return;
+
 	let headingDeg = null;
 	// iOS Safari provides webkitCompassHeading (0 = North, clockwise)
 	if (typeof event.webkitCompassHeading === "number") {
@@ -636,13 +642,15 @@ function onDeviceOrientation(event) {
 	if (headingDeg !== null && !isNaN(headingDeg)) {
 		state.deviceHeading = headingDeg;
 		state.currentHeading = headingDeg;
-		if (state.headingUpMode) applyMapRotation();
+		console.log("Device heading:", headingDeg); // Debug log
+		applyMapRotation();
 	}
 }
 
 // Apply map rotation from best available source: device heading, GPS bearing, or route bearing
 function applyMapRotation() {
 	if (!state.map) return;
+	if (!state.headingUpMode) return;
 
 	let heading = null;
 
@@ -685,6 +693,7 @@ function applyMapRotation() {
 	if (heading === null || isNaN(heading)) return;
 	state.currentHeading = heading;
 
+	console.log("Applying rotation:", heading); // Debug log
 	// Rotate map so that heading points up (rotate map opposite direction)
 	setMapBearing(-heading);
 }
@@ -692,14 +701,24 @@ function applyMapRotation() {
 // Set map bearing using plugin if available, else basic CSS transform fallback
 function setMapBearing(angleDeg) {
 	if (!state.map) return;
+
+	console.log("setMapBearing called with:", angleDeg); // Debug log
+
+	// Leaflet-rotate plugin method
 	if (typeof state.map.setBearing === "function") {
+		console.log("Using setBearing"); // Debug log
 		state.map.setBearing(angleDeg);
 		return;
 	}
+
+	// Alternative rotate method
 	if (typeof state.map.rotateTo === "function") {
+		console.log("Using rotateTo"); // Debug log
 		state.map.rotateTo(angleDeg);
 		return;
 	}
+
+	console.log("Using CSS fallback"); // Debug log
 	// Fallback: rotate the map pane (controls inside map will rotate too)
 	const pane = state.map.getPane && state.map.getPane("mapPane");
 	if (pane) {

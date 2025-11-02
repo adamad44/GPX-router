@@ -63,8 +63,8 @@ body {
 	backdrop-filter: blur(14px);
 	border: 1px solid rgba(255, 255, 255, 0.08);
 	text-align: center;
-	max-width: 600px;
-	width: 90%;
+	max-width: 1000px;
+	width: 95%;
 	max-height: 90vh;
 	overflow-y: auto;
 }
