@@ -18,6 +18,9 @@ const state = {
 	showPreview: true,
 	previewMaps: {},
 	presetRoutes: {},
+	headingUpMode: true, // Rotate map to follow heading
+	currentHeading: 0,
+	lastPosition: null,
 };
 
 // Constants
@@ -54,6 +57,7 @@ function initializeEventListeners() {
 	const enableLocationBtn = document.getElementById("enable-location-btn");
 	const cancelLocationBtn = document.getElementById("cancel-location-btn");
 	const togglePreviewButton = document.getElementById("toggle-preview-button");
+	const toggleRotationButton = document.getElementById("toggle-rotation-button");
 
 	fileInput.addEventListener("change", handleFileUpload);
 	centerButton.addEventListener("click", centerMapOnUser);
@@ -61,6 +65,7 @@ function initializeEventListeners() {
 	enableLocationBtn.addEventListener("click", requestLocationPermission);
 	cancelLocationBtn.addEventListener("click", closeLocationModal);
 	togglePreviewButton.addEventListener("click", togglePreviewRoute);
+	toggleRotationButton.addEventListener("click", toggleMapRotation);
 }
 
 // Toggle Preview Route
@@ -79,6 +84,24 @@ function togglePreviewRoute() {
 	// Update the route display
 	if (state.isNavigating && state.userPosition) {
 		updateNavigation();
+	}
+}
+
+// Toggle Map Rotation (Heading-Up Mode)
+function toggleMapRotation() {
+	state.headingUpMode = !state.headingUpMode;
+
+	const button = document.getElementById("toggle-rotation-button");
+	if (state.headingUpMode) {
+		button.style.opacity = "1";
+		button.title = "Heading-up mode (map rotates)";
+	} else {
+		button.style.opacity = "0.5";
+		button.title = "North-up mode (map fixed)";
+		// Reset rotation when disabling
+		if (state.map) {
+			state.map.setBearing(0);
+		}
 	}
 }
 
@@ -480,11 +503,40 @@ function startGPSTracking() {
 
 // Handle Position Update
 function handlePositionUpdate(position) {
-	const { latitude, longitude, accuracy } = position.coords;
+	const { latitude, longitude, accuracy, heading } = position.coords;
 	state.userPosition = [latitude, longitude];
+
+	// Calculate heading if not provided by GPS
+	let calculatedHeading = heading;
+	if (
+		(calculatedHeading === null || calculatedHeading === undefined) &&
+		state.lastPosition
+	) {
+		calculatedHeading = calculateBearing(state.lastPosition, [
+			latitude,
+			longitude,
+		]);
+	}
+
+	// Update heading if we have movement
+	if (
+		calculatedHeading !== null &&
+		calculatedHeading !== undefined &&
+		!isNaN(calculatedHeading)
+	) {
+		state.currentHeading = calculatedHeading;
+	}
+
+	state.lastPosition = [latitude, longitude];
 
 	// Update or create user marker
 	updateUserMarker(latitude, longitude, accuracy);
+
+	// Rotate map if heading-up mode is enabled
+	if (state.headingUpMode && state.map && state.currentHeading !== null) {
+		// Negative because Leaflet rotates clockwise, but we want to rotate map counter to heading
+		state.map.setBearing(-state.currentHeading);
+	}
 
 	// Center map on user if auto-center is enabled
 	if (state.autoCenterEnabled) {
@@ -786,6 +838,23 @@ function calculateDistance(point1, point2) {
 	const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
 	return R * c;
+}
+
+// Calculate Bearing between two points (for heading calculation)
+function calculateBearing(point1, point2) {
+	const lat1 = (point1[0] * Math.PI) / 180;
+	const lat2 = (point2[0] * Math.PI) / 180;
+	const lon1 = (point1[1] * Math.PI) / 180;
+	const lon2 = (point2[1] * Math.PI) / 180;
+
+	const y = Math.sin(lon2 - lon1) * Math.cos(lat2);
+	const x =
+		Math.cos(lat1) * Math.sin(lat2) -
+		Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon2 - lon1);
+	const bearing = Math.atan2(y, x);
+
+	// Convert from radians to degrees and normalize to 0-360
+	return ((bearing * 180) / Math.PI + 360) % 360;
 }
 
 // Calculate Remaining Distance on Route

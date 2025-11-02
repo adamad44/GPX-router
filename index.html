@@ -11,6 +11,10 @@
 			rel="stylesheet"
 			href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
 		/>
+		<link
+			rel="stylesheet"
+			href="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.css"
+		/>
 		<link rel="stylesheet" href="styles.css" />
 	</head>
 	<body>
@@ -101,6 +105,23 @@
 						</svg>
 					</button>
 					<button
+						id="toggle-rotation-button"
+						class="control-button"
+						title="Heading-up mode (map rotates)"
+					>
+						<svg
+							width="24"
+							height="24"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
+							<circle cx="12" cy="12" r="10"></circle>
+							<polygon points="12,2 10,8 14,8"></polygon>
+						</svg>
+					</button>
+					<button
 						id="center-button"
 						class="control-button"
 						title="Center on my location"
@@ -137,6 +158,7 @@
 		</div>
 
 		<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+		<script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script>
 		<script src="app.js"></script>
 	</body>
 </html>

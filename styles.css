@@ -358,6 +358,11 @@ body {
 }
 
 #toggle-preview-button {
+	bottom: 240px;
+	right: 20px;
+}
+
+#toggle-rotation-button {
 	bottom: 170px;
 	right: 20px;
 }
