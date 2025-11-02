@@ -749,11 +749,28 @@ function applyMapRotation() {
 		}
 	}
 
-	// Route mode: always use the direction of the route ahead (works even when stationary)
-	if (state.rotationMode === "route") {
-		// First try to get route bearing ahead from current position
-		if (state.gpxRoute && state.gpxRoute.length > 1 && state.userPosition) {
-			const progress = findNearestPointOnRoute(state.userPosition, state.gpxRoute);
+	// Route mode: use the direction of the ACTIVE navigation route (the blue line)
+	if (state.rotationMode === "route" && state.userPosition) {
+		let activeRoute = null;
+
+		// Determine which route is currently being followed
+		if (
+			!state.hasReachedStart &&
+			state.approachRoute &&
+			state.approachRoute.length > 1
+		) {
+			// Still approaching the start - use the OSRM approach route (blue line to start)
+			activeRoute = state.approachRoute;
+			console.log("Route mode: Using approach route (navigating to start)");
+		} else if (state.gpxRoute && state.gpxRoute.length > 1) {
+			// Following the GPX route
+			activeRoute = state.gpxRoute;
+			console.log("Route mode: Using GPX route (following track)");
+		}
+
+		// Calculate bearing from the active navigation route
+		if (activeRoute && activeRoute.length > 1) {
+			const progress = findNearestPointOnRoute(state.userPosition, activeRoute);
 			const startIdx = Math.max(progress.index, 0);
 
 			// Look ahead until we have at least 50 meters of route to get stable bearing
@@ -763,27 +780,24 @@ function applyMapRotation() {
 
 			// Accumulate distance along route until we reach minimum
 			while (
-				lookIdx < state.gpxRoute.length &&
+				lookIdx < activeRoute.length &&
 				accumulatedDistance < MIN_LOOK_AHEAD_DISTANCE
 			) {
 				accumulatedDistance += calculateDistance(
-					state.gpxRoute[lookIdx - 1],
-					state.gpxRoute[lookIdx]
+					activeRoute[lookIdx - 1],
+					activeRoute[lookIdx]
 				);
 				lookIdx++;
 			}
 
 			// Use the furthest point we found (or end of route if we ran out)
-			lookIdx = Math.min(lookIdx - 1, state.gpxRoute.length - 1);
+			lookIdx = Math.min(lookIdx - 1, activeRoute.length - 1);
 
 			// Only calculate bearing if we found a point far enough ahead
 			if (lookIdx > startIdx) {
-				heading = calculateBearing(
-					state.gpxRoute[startIdx],
-					state.gpxRoute[lookIdx]
-				);
+				heading = calculateBearing(activeRoute[startIdx], activeRoute[lookIdx]);
 				console.log(
-					`Route mode: Using route bearing ahead (${Math.round(
+					`Route mode: Bearing to navigation destination (${Math.round(
 						accumulatedDistance
 					)}m ahead):`,
 					heading
