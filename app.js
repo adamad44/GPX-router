@@ -24,12 +24,15 @@ const state = {
 	currentHeading: 0,
 	lastPosition: null,
 	orientationListenerActive: false,
+	deviceHeading: null,
+	gpsHeading: null,
 };
 
 // Constants
 const LOOK_AHEAD_DISTANCE = 1609.34; // 1 mile in meters
 const START_POINT_THRESHOLD = 50; // 50 meters to consider "reached start"
 const OSRM_API = "https://router.project-osrm.org/route/v1/driving/";
+const USER_VIEW_OFFSET_RATIO = 0.28; // keep user marker near bottom of screen
 
 // Preset Routes
 const PRESET_ROUTES = [
@@ -388,6 +391,11 @@ function requestLocationPermission() {
 	// This triggers the native browser permission popup (including iOS Safari)
 	closeLocationModal();
 
+	// Request compass access while we're still in a user gesture (iOS requirement)
+	if (state.headingUpMode) {
+		enableDeviceCompass();
+	}
+
 	// Make a one-time position request to trigger native permission dialog
 	navigator.geolocation.getCurrentPosition(
 		(position) => {
@@ -498,6 +506,11 @@ function startGPSTracking() {
 
 	updateStatusText("Acquiring GPS location...");
 
+	if (state.headingUpMode) {
+		enableDeviceCompass();
+		applyMapRotation();
+	}
+
 	state.watchId = navigator.geolocation.watchPosition(
 		handlePositionUpdate,
 		handlePositionError,
@@ -532,7 +545,10 @@ function handlePositionUpdate(position) {
 		calculatedHeading !== undefined &&
 		!isNaN(calculatedHeading)
 	) {
-		state.currentHeading = calculatedHeading;
+		state.gpsHeading = calculatedHeading;
+		if (!state.orientationListenerActive || state.deviceHeading === null) {
+			state.currentHeading = calculatedHeading;
+		}
 	}
 
 	state.lastPosition = [latitude, longitude];
@@ -547,10 +563,7 @@ function handlePositionUpdate(position) {
 
 	// Center map on user if auto-center is enabled
 	if (state.autoCenterEnabled) {
-		state.map.setView([latitude, longitude], state.map.getZoom() || 16, {
-			animate: true,
-			duration: 0.5,
-		});
+		centerOnLatLngWithOffset([latitude, longitude], state.map.getZoom() || 16);
 	}
 
 	// Update navigation
@@ -606,6 +619,7 @@ function disableDeviceCompass() {
 	if (state.orientationListenerActive) {
 		window.removeEventListener("deviceorientation", onDeviceOrientation, true);
 		state.orientationListenerActive = false;
+		state.deviceHeading = null;
 	}
 }
 
@@ -620,6 +634,7 @@ function onDeviceOrientation(event) {
 	}
 
 	if (headingDeg !== null && !isNaN(headingDeg)) {
+		state.deviceHeading = headingDeg;
 		state.currentHeading = headingDeg;
 		if (state.headingUpMode) applyMapRotation();
 	}
@@ -632,16 +647,25 @@ function applyMapRotation() {
 	let heading = null;
 
 	// 1) Device orientation heading (most responsive)
-	if (
-		state.orientationListenerActive &&
-		typeof state.currentHeading === "number" &&
-		!isNaN(state.currentHeading)
-	) {
-		heading = state.currentHeading;
+	if (typeof state.deviceHeading === "number" && !isNaN(state.deviceHeading)) {
+		heading = state.deviceHeading;
 	}
 
 	// 2) GPS-derived heading from last movement
-	if (heading === null && typeof state.currentHeading === "number") {
+	if (
+		heading === null &&
+		typeof state.gpsHeading === "number" &&
+		!isNaN(state.gpsHeading)
+	) {
+		heading = state.gpsHeading;
+	}
+
+	// 2b) Legacy current heading (for compatibility)
+	if (
+		heading === null &&
+		typeof state.currentHeading === "number" &&
+		!isNaN(state.currentHeading)
+	) {
 		heading = state.currentHeading;
 	}
 
@@ -659,6 +683,7 @@ function applyMapRotation() {
 	}
 
 	if (heading === null || isNaN(heading)) return;
+	state.currentHeading = heading;
 
 	// Rotate map so that heading points up (rotate map opposite direction)
 	setMapBearing(-heading);
@@ -1097,11 +1122,29 @@ function updateStatusText(text) {
 	document.getElementById("status-text").textContent = text;
 }
 
+// Center map on a lat/lng with vertical offset so the user sees more ahead
+function centerOnLatLngWithOffset(latlng, zoom, animationOptions = {}) {
+	if (!state.map || !latlng) return;
+	const map = state.map;
+	const targetZoom = zoom ?? map.getZoom() ?? 16;
+	const mapSize = map.getSize();
+	const offsetY = mapSize.y * USER_VIEW_OFFSET_RATIO;
+	const projected = map.project(latlng, targetZoom);
+	const offsetPoint = L.point(projected.x, projected.y - offsetY);
+	const centerLatLng = map.unproject(offsetPoint, targetZoom);
+	map.setView(centerLatLng, targetZoom, {
+		animate: true,
+		duration: 0.5,
+		easeLinearity: 0.2,
+		...animationOptions,
+	});
+}
+
 // Center Map on User
 function centerMapOnUser() {
 	if (state.userPosition) {
 		state.autoCenterEnabled = true;
-		state.map.setView(state.userPosition, 16, {
+		centerOnLatLngWithOffset(state.userPosition, state.map.getZoom() || 16, {
 			animate: true,
 			duration: 0.5,
 		});
@@ -1143,6 +1186,10 @@ function resetApp() {
 	state.autoCenterEnabled = true;
 	state.startMarker = null;
 	state.endMarker = null;
+	state.deviceHeading = null;
+	state.gpsHeading = null;
+	state.currentHeading = 0;
+	state.lastPosition = null;
 
 	// Reset UI
 	document.getElementById("navigation-section").classList.add("hidden");
