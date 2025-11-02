@@ -20,7 +20,7 @@ const state = {
 	showPreview: true,
 	previewMaps: {},
 	presetRoutes: {},
-	headingUpMode: true, // Rotate map to follow heading
+	rotationMode: "route", // 'off', 'route' (direction of travel is up), 'compass' (device heading is up)
 	currentHeading: 0,
 	lastPosition: null,
 	orientationListenerActive: false,
@@ -101,26 +101,34 @@ function togglePreviewRoute() {
 	}
 }
 
-// Toggle Map Rotation (Heading-Up Mode)
+// Toggle Map Rotation Mode (cycles through: route-up -> compass -> off -> route-up)
 function toggleMapRotation() {
-	state.headingUpMode = !state.headingUpMode;
-
 	const button = document.getElementById("toggle-rotation-button");
-	if (state.headingUpMode) {
+
+	// Cycle through modes: route -> compass -> off -> route
+	if (state.rotationMode === "route") {
+		state.rotationMode = "compass";
 		button.style.opacity = "1";
-		button.title = "Heading-up mode (map rotates)";
-		// Enable device compass if available (iOS requires user gesture)
+		button.style.filter = "hue-rotate(120deg)"; // Green tint for compass
+		button.title = "Compass mode (follows device orientation)";
 		enableDeviceCompass();
-		// Apply rotation immediately using best available heading
 		applyMapRotation();
-	} else {
+	} else if (state.rotationMode === "compass") {
+		state.rotationMode = "off";
 		button.style.opacity = "0.5";
+		button.style.filter = "none";
 		button.title = "North-up mode (map fixed)";
-		// Reset rotation when disabling
 		disableDeviceCompass();
 		if (state.map) {
 			setMapBearing(0);
 		}
+	} else {
+		state.rotationMode = "route";
+		button.style.opacity = "1";
+		button.style.filter = "none";
+		button.title = "Route-up mode (direction of travel points up)";
+		disableDeviceCompass();
+		applyMapRotation();
 	}
 }
 
@@ -405,7 +413,7 @@ function requestLocationPermission() {
 	closeLocationModal();
 
 	// Request compass access while we're still in a user gesture (iOS requirement)
-	if (state.headingUpMode) {
+	if (state.rotationMode === "compass") {
 		enableDeviceCompass();
 	}
 
@@ -523,8 +531,10 @@ function startGPSTracking() {
 
 	updateStatusText("Acquiring GPS location...");
 
-	if (state.headingUpMode) {
+	if (state.rotationMode === "compass") {
 		enableDeviceCompass();
+	}
+	if (state.rotationMode !== "off") {
 		applyMapRotation();
 	}
 
@@ -573,8 +583,8 @@ function handlePositionUpdate(position) {
 	// Update or create user marker
 	updateUserMarker(latitude, longitude, accuracy);
 
-	// Rotate map if heading-up mode is enabled
-	if (state.headingUpMode) {
+	// Rotate map if rotation mode is enabled
+	if (state.rotationMode !== "off") {
 		applyMapRotation();
 	}
 
@@ -641,7 +651,7 @@ function disableDeviceCompass() {
 }
 
 function onDeviceOrientation(event) {
-	if (!state.headingUpMode) return;
+	if (state.rotationMode !== "compass") return;
 
 	let headingDeg = null;
 	// iOS Safari provides webkitCompassHeading (0 = North, clockwise)
@@ -656,51 +666,55 @@ function onDeviceOrientation(event) {
 		state.deviceHeading = headingDeg;
 		state.currentHeading = headingDeg;
 		console.log("Device heading:", headingDeg); // Debug log
-		applyMapRotation();
+		if (state.rotationMode === "compass") {
+			applyMapRotation();
+		}
 	}
 }
 
 // Apply map rotation from best available source: device heading, GPS bearing, or route bearing
 function applyMapRotation() {
 	if (!state.map) return;
-	if (!state.headingUpMode) return;
+	if (state.rotationMode === "off") return;
 
 	let heading = null;
 
-	// 1) Device orientation heading (most responsive)
-	if (typeof state.deviceHeading === "number" && !isNaN(state.deviceHeading)) {
-		heading = state.deviceHeading;
+	// Compass mode: prioritize device orientation
+	if (state.rotationMode === "compass") {
+		// 1) Device orientation heading (most responsive)
+		if (typeof state.deviceHeading === "number" && !isNaN(state.deviceHeading)) {
+			heading = state.deviceHeading;
+		}
 	}
 
-	// 2) GPS-derived heading from last movement
-	if (
-		heading === null &&
-		typeof state.gpsHeading === "number" &&
-		!isNaN(state.gpsHeading)
-	) {
-		heading = state.gpsHeading;
-	}
+	// Route mode or compass fallback: use GPS/route heading
+	if (heading === null) {
+		// 2) GPS-derived heading from last movement
+		if (typeof state.gpsHeading === "number" && !isNaN(state.gpsHeading)) {
+			heading = state.gpsHeading;
+		}
 
-	// 2b) Legacy current heading (for compatibility)
-	if (
-		heading === null &&
-		typeof state.currentHeading === "number" &&
-		!isNaN(state.currentHeading)
-	) {
-		heading = state.currentHeading;
-	}
+		// 2b) Legacy current heading (for compatibility)
+		if (
+			heading === null &&
+			typeof state.currentHeading === "number" &&
+			!isNaN(state.currentHeading)
+		) {
+			heading = state.currentHeading;
+		}
 
-	// 3) Route bearing ahead (fallback when no compass data)
-	if (
-		heading === null &&
-		state.gpxRoute &&
-		state.gpxRoute.length > 1 &&
-		state.userPosition
-	) {
-		const progress = findNearestPointOnRoute(state.userPosition, state.gpxRoute);
-		const idx = Math.max(progress.index, 0);
-		const lookIdx = Math.min(idx + 10, state.gpxRoute.length - 1);
-		heading = calculateBearing(state.gpxRoute[idx], state.gpxRoute[lookIdx]);
+		// 3) Route bearing ahead (fallback when no compass data)
+		if (
+			heading === null &&
+			state.gpxRoute &&
+			state.gpxRoute.length > 1 &&
+			state.userPosition
+		) {
+			const progress = findNearestPointOnRoute(state.userPosition, state.gpxRoute);
+			const idx = Math.max(progress.index, 0);
+			const lookIdx = Math.min(idx + 10, state.gpxRoute.length - 1);
+			heading = calculateBearing(state.gpxRoute[idx], state.gpxRoute[lookIdx]);
+		}
 	}
 
 	if (heading === null || isNaN(heading)) return;

@@ -455,11 +455,21 @@ body {
 /* Responsive Design */
 @media (max-width: 768px) {
 	.upload-container {
-		padding: 1.5rem;
+		padding: 1rem;
+		max-width: 100%;
+		width: 100%;
+		border-radius: 0;
+		max-height: 100vh;
 	}
 
 	.upload-container h1 {
 		font-size: 1.5rem;
+	}
+
+	.route-grid {
+		grid-template-columns: 1fr;
+		max-height: 60vh;
+		padding: 0.5rem;
 	}
 
 	#status-bar {
