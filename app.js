@@ -162,14 +162,14 @@ function toggleMapRotation() {
 		state.rotationMode = "compass";
 		button.style.opacity = "1";
 		button.style.filter = "hue-rotate(120deg)"; // Green tint for compass
-		button.title = "Compass mode (follows device orientation)";
+		button.title = "Compass mode (device orientation - spins with phone)";
 		enableDeviceCompass();
 		applyMapRotation();
 	} else if (state.rotationMode === "compass") {
 		state.rotationMode = "off";
 		button.style.opacity = "0.5";
 		button.style.filter = "none";
-		button.title = "North-up mode (map fixed)";
+		button.title = "North-up mode (map fixed, north always up)";
 		disableDeviceCompass();
 		if (state.map) {
 			setMapBearing(0);
@@ -178,7 +178,8 @@ function toggleMapRotation() {
 		state.rotationMode = "route";
 		button.style.opacity = "1";
 		button.style.filter = "none";
-		button.title = "Route-up mode (direction of travel points up)";
+		button.title =
+			"Route-up mode (route direction points up - works when stationary)";
 		disableDeviceCompass();
 		applyMapRotation();
 	}
@@ -737,47 +738,50 @@ function applyMapRotation() {
 		if (typeof state.deviceHeading === "number" && !isNaN(state.deviceHeading)) {
 			heading = state.deviceHeading;
 		}
-	}
 
-	// Route mode or compass fallback: use GPS/route heading
-	if (heading === null) {
-		// 2) GPS-derived heading from last movement
-		if (typeof state.gpsHeading === "number" && !isNaN(state.gpsHeading)) {
+		// Fallback to GPS heading if compass unavailable
+		if (
+			heading === null &&
+			typeof state.gpsHeading === "number" &&
+			!isNaN(state.gpsHeading)
+		) {
 			heading = state.gpsHeading;
 		}
+	}
 
-		// 2b) Legacy current heading (for compatibility)
-		if (
-			heading === null &&
-			typeof state.currentHeading === "number" &&
-			!isNaN(state.currentHeading)
-		) {
-			heading = state.currentHeading;
-		}
-
-		// 3) Route bearing ahead (fallback when no compass data)
-		if (
-			heading === null &&
-			state.gpxRoute &&
-			state.gpxRoute.length > 1 &&
-			state.userPosition
-		) {
+	// Route mode: always use the direction of the route ahead (works even when stationary)
+	if (state.rotationMode === "route") {
+		// First try to get route bearing ahead from current position
+		if (state.gpxRoute && state.gpxRoute.length > 1 && state.userPosition) {
 			const progress = findNearestPointOnRoute(state.userPosition, state.gpxRoute);
 			const idx = Math.max(progress.index, 0);
 			const lookIdx = Math.min(idx + 10, state.gpxRoute.length - 1);
 			heading = calculateBearing(state.gpxRoute[idx], state.gpxRoute[lookIdx]);
+			console.log("Route mode: Using route bearing ahead:", heading);
+		}
+
+		// If no route, fallback to GPS heading (direction of travel)
+		if (
+			heading === null &&
+			typeof state.gpsHeading === "number" &&
+			!isNaN(state.gpsHeading)
+		) {
+			heading = state.gpsHeading;
+			console.log("Route mode: Fallback to GPS heading:", heading);
 		}
 	}
 
-	if (heading === null || isNaN(heading)) return;
+	if (heading === null || isNaN(heading)) {
+		console.log("No valid heading available");
+		return;
+	}
+
 	state.currentHeading = heading;
 
 	console.log("Applying rotation:", heading); // Debug log
 	// Rotate map so that heading points up (rotate map opposite direction)
 	setMapBearing(-heading);
-}
-
-// Set map bearing using plugin if available, else basic CSS transform fallback
+} // Set map bearing using plugin if available, else basic CSS transform fallback
 function setMapBearing(angleDeg) {
 	if (!state.map) return;
 
