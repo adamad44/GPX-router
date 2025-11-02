@@ -23,6 +23,7 @@ const state = {
 	headingUpMode: true, // Rotate map to follow heading
 	currentHeading: 0,
 	lastPosition: null,
+	orientationListenerActive: false,
 };
 
 // Constants
@@ -97,12 +98,17 @@ function toggleMapRotation() {
 	if (state.headingUpMode) {
 		button.style.opacity = "1";
 		button.title = "Heading-up mode (map rotates)";
+		// Enable device compass if available (iOS requires user gesture)
+		enableDeviceCompass();
+		// Apply rotation immediately using best available heading
+		applyMapRotation();
 	} else {
 		button.style.opacity = "0.5";
 		button.title = "North-up mode (map fixed)";
 		// Reset rotation when disabling
+		disableDeviceCompass();
 		if (state.map) {
-			state.map.setBearing(0);
+			setMapBearing(0);
 		}
 	}
 }
@@ -535,9 +541,8 @@ function handlePositionUpdate(position) {
 	updateUserMarker(latitude, longitude, accuracy);
 
 	// Rotate map if heading-up mode is enabled
-	if (state.headingUpMode && state.map && state.currentHeading !== null) {
-		// Negative because Leaflet rotates clockwise, but we want to rotate map counter to heading
-		state.map.setBearing(-state.currentHeading);
+	if (state.headingUpMode) {
+		applyMapRotation();
 	}
 
 	// Center map on user if auto-center is enabled
@@ -569,6 +574,114 @@ function handlePositionError(error) {
 			break;
 	}
 	updateStatusText(message);
+}
+
+// Enable Device Compass (iOS Safari requires user gesture permission)
+async function enableDeviceCompass() {
+	try {
+		if (typeof window === "undefined") return;
+		if (state.orientationListenerActive) return;
+
+		if (
+			typeof DeviceOrientationEvent !== "undefined" &&
+			typeof DeviceOrientationEvent.requestPermission === "function"
+		) {
+			// iOS 13+ permission flow
+			const perm = await DeviceOrientationEvent.requestPermission();
+			if (perm !== "granted") {
+				console.warn("Device orientation permission not granted");
+				return;
+			}
+		}
+
+		// Register listener
+		window.addEventListener("deviceorientation", onDeviceOrientation, true);
+		state.orientationListenerActive = true;
+	} catch (e) {
+		console.warn("Device orientation unavailable", e);
+	}
+}
+
+function disableDeviceCompass() {
+	if (state.orientationListenerActive) {
+		window.removeEventListener("deviceorientation", onDeviceOrientation, true);
+		state.orientationListenerActive = false;
+	}
+}
+
+function onDeviceOrientation(event) {
+	let headingDeg = null;
+	// iOS Safari provides webkitCompassHeading (0 = North, clockwise)
+	if (typeof event.webkitCompassHeading === "number") {
+		headingDeg = event.webkitCompassHeading;
+	} else if (typeof event.alpha === "number") {
+		// Fallback estimate: alpha rotates with device; convert so 0 = North
+		headingDeg = (360 - event.alpha) % 360;
+	}
+
+	if (headingDeg !== null && !isNaN(headingDeg)) {
+		state.currentHeading = headingDeg;
+		if (state.headingUpMode) applyMapRotation();
+	}
+}
+
+// Apply map rotation from best available source: device heading, GPS bearing, or route bearing
+function applyMapRotation() {
+	if (!state.map) return;
+
+	let heading = null;
+
+	// 1) Device orientation heading (most responsive)
+	if (
+		state.orientationListenerActive &&
+		typeof state.currentHeading === "number" &&
+		!isNaN(state.currentHeading)
+	) {
+		heading = state.currentHeading;
+	}
+
+	// 2) GPS-derived heading from last movement
+	if (heading === null && typeof state.currentHeading === "number") {
+		heading = state.currentHeading;
+	}
+
+	// 3) Route bearing ahead (fallback when no compass data)
+	if (
+		heading === null &&
+		state.gpxRoute &&
+		state.gpxRoute.length > 1 &&
+		state.userPosition
+	) {
+		const progress = findNearestPointOnRoute(state.userPosition, state.gpxRoute);
+		const idx = Math.max(progress.index, 0);
+		const lookIdx = Math.min(idx + 10, state.gpxRoute.length - 1);
+		heading = calculateBearing(state.gpxRoute[idx], state.gpxRoute[lookIdx]);
+	}
+
+	if (heading === null || isNaN(heading)) return;
+
+	// Rotate map so that heading points up (rotate map opposite direction)
+	setMapBearing(-heading);
+}
+
+// Set map bearing using plugin if available, else basic CSS transform fallback
+function setMapBearing(angleDeg) {
+	if (!state.map) return;
+	if (typeof state.map.setBearing === "function") {
+		state.map.setBearing(angleDeg);
+		return;
+	}
+	if (typeof state.map.rotateTo === "function") {
+		state.map.rotateTo(angleDeg);
+		return;
+	}
+	// Fallback: rotate the map pane (controls inside map will rotate too)
+	const pane = state.map.getPane && state.map.getPane("mapPane");
+	if (pane) {
+		pane.style.transformOrigin = "50% 50%";
+		pane.style.transition = "transform 0.2s ease-out";
+		pane.style.transform = `rotate(${angleDeg}deg)`;
+	}
 }
 
 // Update User Marker
@@ -1001,6 +1114,12 @@ function resetApp() {
 	if (state.watchId) {
 		navigator.geolocation.clearWatch(state.watchId);
 		state.watchId = null;
+	}
+
+	// Stop device orientation listener and reset rotation
+	disableDeviceCompass();
+	if (state.map) {
+		setMapBearing(0);
 	}
 
 	// Clear map
