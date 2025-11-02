@@ -26,6 +26,11 @@ const state = {
 	orientationListenerActive: false,
 	deviceHeading: null,
 	gpsHeading: null,
+	voiceEnabled: true,
+	navigationSteps: [],
+	currentStepIndex: -1,
+	lastAnnouncedStep: -1,
+	speechSynthesis: null,
 };
 
 // Constants
@@ -54,6 +59,7 @@ const PRESET_ROUTES = [
 document.addEventListener("DOMContentLoaded", () => {
 	initializeEventListeners();
 	loadPresetRoutes();
+	initVoiceNavigation();
 });
 
 function initializeEventListeners() {
@@ -64,6 +70,7 @@ function initializeEventListeners() {
 	const cancelLocationBtn = document.getElementById("cancel-location-btn");
 	const togglePreviewButton = document.getElementById("toggle-preview-button");
 	const toggleRotationButton = document.getElementById("toggle-rotation-button");
+	const toggleVoiceButton = document.getElementById("toggle-voice-button");
 
 	fileInput.addEventListener("change", handleFileUpload);
 	centerButton.addEventListener("click", centerMapOnUser);
@@ -72,6 +79,7 @@ function initializeEventListeners() {
 	cancelLocationBtn.addEventListener("click", closeLocationModal);
 	togglePreviewButton.addEventListener("click", togglePreviewRoute);
 	toggleRotationButton.addEventListener("click", toggleMapRotation);
+	toggleVoiceButton.addEventListener("click", toggleVoiceNavigation);
 }
 
 // Toggle Preview Route
@@ -359,6 +367,11 @@ function startNavigation() {
 
 	// Add start and end markers
 	addRouteMarkers();
+
+	// Reset voice navigation state
+	state.navigationSteps = [];
+	state.currentStepIndex = -1;
+	state.lastAnnouncedStep = -1;
 
 	// Show location permission modal
 	showLocationModal();
@@ -771,6 +784,9 @@ async function updateNavigation() {
 			`Navigating to route start (${formatDistance(distanceToStart)})`
 		);
 		await updateApproachRoute();
+
+		// Check for voice navigation instructions (only when approaching via OSRM route)
+		checkNavigationSteps();
 	} else {
 		// Following GPX route
 		const progress = findNearestPointOnRoute(state.userPosition, state.gpxRoute);
@@ -846,14 +862,42 @@ async function updateApproachRoute() {
 
 // Get Route from OSRM API
 async function getOSRMRoute(start, end) {
-	const url = `${OSRM_API}${start[1]},${start[0]};${end[1]},${end[0]}?overview=full&geometries=geojson`;
+	const url = `${OSRM_API}${start[1]},${start[0]};${end[1]},${end[0]}?overview=full&geometries=geojson&steps=true&annotations=true`;
 
 	try {
 		const response = await fetch(url);
 		const data = await response.json();
 
 		if (data.code === "Ok" && data.routes && data.routes.length > 0) {
-			const coordinates = data.routes[0].geometry.coordinates;
+			const route = data.routes[0];
+			const coordinates = route.geometry.coordinates;
+
+			// Extract navigation steps for voice guidance
+			if (route.legs && route.legs.length > 0) {
+				state.navigationSteps = [];
+				route.legs.forEach((leg) => {
+					if (leg.steps) {
+						leg.steps.forEach((step) => {
+							if (
+								step.maneuver &&
+								step.maneuver.type !== "depart" &&
+								step.maneuver.type !== "arrive"
+							) {
+								state.navigationSteps.push({
+									location: [step.maneuver.location[1], step.maneuver.location[0]],
+									instruction:
+										step.maneuver.instruction || getManeuverInstruction(step.maneuver),
+									distance: step.distance,
+									type: step.maneuver.type,
+									modifier: step.maneuver.modifier,
+								});
+							}
+						});
+					}
+				});
+				console.log("Navigation steps loaded:", state.navigationSteps.length);
+			}
+
 			// Convert [lon, lat] to [lat, lon]
 			return coordinates.map((coord) => [coord[1], coord[0]]);
 		}
@@ -861,6 +905,114 @@ async function getOSRMRoute(start, end) {
 	} catch (error) {
 		console.error("OSRM API Error:", error);
 		return null;
+	}
+}
+
+// Generate instruction text from maneuver data
+function getManeuverInstruction(maneuver) {
+	const type = maneuver.type;
+	const modifier = maneuver.modifier;
+
+	const directions = {
+		turn: "Turn",
+		"new name": "Continue onto",
+		notification: "Continue",
+		merge: "Merge",
+		"on ramp": "Take the ramp",
+		"off ramp": "Take the exit",
+		fork: "At the fork,",
+		"end of road": "At the end of the road,",
+		continue: "Continue",
+		roundabout: "Enter the roundabout",
+		rotary: "Enter the rotary",
+		"roundabout turn": "At the roundabout, take exit",
+	};
+
+	const modifiers = {
+		uturn: "make a U-turn",
+		"sharp right": "turn sharp right",
+		right: "turn right",
+		"slight right": "turn slight right",
+		straight: "continue straight",
+		"slight left": "turn slight left",
+		left: "turn left",
+		"sharp left": "turn sharp left",
+	};
+
+	let instruction = directions[type] || "Continue";
+	if (modifier && modifiers[modifier]) {
+		instruction += " " + modifiers[modifier];
+	}
+
+	return instruction;
+}
+
+// Voice Navigation Functions
+function initVoiceNavigation() {
+	if ("speechSynthesis" in window) {
+		state.speechSynthesis = window.speechSynthesis;
+		console.log("Voice navigation initialized");
+	} else {
+		console.warn("Speech synthesis not supported");
+		state.voiceEnabled = false;
+	}
+}
+
+function speak(text) {
+	if (!state.voiceEnabled || !state.speechSynthesis) return;
+
+	// Cancel any ongoing speech
+	state.speechSynthesis.cancel();
+
+	const utterance = new SpeechSynthesisUtterance(text);
+	utterance.rate = 0.9;
+	utterance.pitch = 1.0;
+	utterance.volume = 1.0;
+
+	console.log("Speaking:", text);
+	state.speechSynthesis.speak(utterance);
+}
+
+function checkNavigationSteps() {
+	if (
+		!state.voiceEnabled ||
+		!state.userPosition ||
+		state.navigationSteps.length === 0
+	) {
+		return;
+	}
+
+	const ANNOUNCEMENT_DISTANCE = 100; // Announce 100 meters before turn
+
+	for (let i = 0; i < state.navigationSteps.length; i++) {
+		if (i <= state.lastAnnouncedStep) continue;
+
+		const step = state.navigationSteps[i];
+		const distance = calculateDistance(state.userPosition, step.location);
+
+		// Announce when within range
+		if (distance <= ANNOUNCEMENT_DISTANCE && distance > 20) {
+			const distanceText =
+				distance > 50 ? `In ${Math.round(distance)} meters` : "Soon";
+
+			speak(`${distanceText}, ${step.instruction}`);
+			state.lastAnnouncedStep = i;
+			break;
+		}
+	}
+}
+
+function toggleVoiceNavigation() {
+	state.voiceEnabled = !state.voiceEnabled;
+
+	const button = document.getElementById("toggle-voice-button");
+	if (button) {
+		button.style.opacity = state.voiceEnabled ? "1" : "0.5";
+		button.title = state.voiceEnabled ? "Voice enabled" : "Voice disabled";
+	}
+
+	if (state.voiceEnabled) {
+		speak("Voice navigation enabled");
 	}
 }
 
