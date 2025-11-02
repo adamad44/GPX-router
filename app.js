@@ -650,9 +650,16 @@ async function updateApproachRoute() {
 			// Display preview if enabled
 			if (state.showPreview && previewRoute.length > 0) {
 				displayPreviewRouteApproach(previewRoute);
-			} else if (state.previewRoutePolyline) {
-				state.map.removeLayer(state.previewRoutePolyline);
-				state.previewRoutePolyline = null;
+			} else {
+				// Remove preview route and its decorator when hidden
+				if (state.previewRoutePolyline) {
+					state.map.removeLayer(state.previewRoutePolyline);
+					state.previewRoutePolyline = null;
+				}
+				if (state.previewRouteDecorator) {
+					state.map.removeLayer(state.previewRouteDecorator);
+					state.previewRouteDecorator = null;
+				}
 			}
 		}
 	} catch (error) {
@@ -666,6 +673,16 @@ async function updateApproachRoute() {
 
 		if (state.showPreview && previewRoute.length > 0) {
 			displayPreviewRouteApproach(previewRoute);
+		} else {
+			// Remove preview route and its decorator when hidden
+			if (state.previewRoutePolyline) {
+				state.map.removeLayer(state.previewRoutePolyline);
+				state.previewRoutePolyline = null;
+			}
+			if (state.previewRouteDecorator) {
+				state.map.removeLayer(state.previewRouteDecorator);
+				state.previewRouteDecorator = null;
+			}
 		}
 	}
 }
@@ -701,9 +718,16 @@ function updateVisibleRoute(startIndex) {
 	// Display preview route (rest of route, transparent)
 	if (state.showPreview && previewRoute.length > 0) {
 		displayPreviewRoute(previewRoute);
-	} else if (state.previewRoutePolyline) {
-		state.map.removeLayer(state.previewRoutePolyline);
-		state.previewRoutePolyline = null;
+	} else {
+		// Remove preview route and its decorator when hidden
+		if (state.previewRoutePolyline) {
+			state.map.removeLayer(state.previewRoutePolyline);
+			state.previewRoutePolyline = null;
+		}
+		if (state.previewRouteDecorator) {
+			state.map.removeLayer(state.previewRouteDecorator);
+			state.previewRouteDecorator = null;
+		}
 	}
 }
 
