@@ -60,7 +60,59 @@ document.addEventListener("DOMContentLoaded", () => {
 	initializeEventListeners();
 	loadPresetRoutes();
 	initVoiceNavigation();
+	preventZoom();
 });
+
+// Prevent pinch zoom and double-tap zoom on Safari/iOS
+function preventZoom() {
+	// Prevent double-tap zoom on iOS Safari
+	let lastTouchEnd = 0;
+	document.addEventListener(
+		"touchend",
+		(event) => {
+			const now = Date.now();
+			if (now - lastTouchEnd <= 300) {
+				event.preventDefault();
+			}
+			lastTouchEnd = now;
+		},
+		{ passive: false }
+	);
+
+	// Prevent pinch zoom
+	document.addEventListener("gesturestart", (e) => {
+		e.preventDefault();
+	});
+
+	document.addEventListener("gesturechange", (e) => {
+		e.preventDefault();
+	});
+
+	document.addEventListener("gestureend", (e) => {
+		e.preventDefault();
+	});
+
+	// Prevent touchmove zoom (two-finger zoom)
+	let initialDistance = 0;
+	document.addEventListener("touchstart", (e) => {
+		if (e.touches.length > 1) {
+			initialDistance = Math.hypot(
+				e.touches[0].pageX - e.touches[1].pageX,
+				e.touches[0].pageY - e.touches[1].pageY
+			);
+		}
+	});
+
+	document.addEventListener(
+		"touchmove",
+		(e) => {
+			if (e.touches.length > 1) {
+				e.preventDefault();
+			}
+		},
+		{ passive: false }
+	);
+}
 
 function initializeEventListeners() {
 	const fileInput = document.getElementById("gpx-file-input");
