@@ -467,54 +467,129 @@ label {
 	color: #666;
 }
 
-.control-button {
+/* Control buttons container */
+.control-buttons-container {
 	position: fixed;
-	width: 56px;
+	bottom: 20px;
+	right: 20px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	z-index: 1001;
+	pointer-events: none;
+}
+
+.control-button {
+	width: auto;
+	min-width: 56px;
 	height: 56px;
 	background: white;
 	border: none;
-	border-radius: 50%;
-	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	border-radius: 28px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1);
 	cursor: pointer;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	transition: all 0.2s;
+	gap: 8px;
+	padding: 0 16px;
+	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 	pointer-events: auto;
-	z-index: 1001;
+	position: relative;
+	overflow: hidden;
+}
+
+.control-button.with-label {
+	padding: 0 20px;
 }
 
 .control-button:hover {
-	transform: scale(1.05);
-	box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+	transform: translateX(-4px) scale(1.02);
+	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), 0 2px 6px rgba(0, 0, 0, 0.15);
+	background: #f8f9fa;
 }
 
 .control-button:active {
-	transform: scale(0.95);
-}
-
-#toggle-preview-button {
-	bottom: 240px;
-	right: 20px;
-}
-
-#toggle-rotation-button {
-	bottom: 170px;
-	right: 20px;
-}
-
-#center-button {
-	bottom: 100px;
-	right: 20px;
-}
-
-#reset-button {
-	bottom: 30px;
-	right: 20px;
+	transform: translateX(-4px) scale(0.98);
 }
 
 .control-button svg {
-	color: #667eea;
+	color: #5f6368;
+	flex-shrink: 0;
+	transition: color 0.2s;
+}
+
+.button-label {
+	font-size: 14px;
+	font-weight: 500;
+	color: #202124;
+	white-space: nowrap;
+	letter-spacing: 0.25px;
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.control-button.primary {
+	background: #1a73e8;
+}
+
+.control-button.primary svg {
+	color: white;
+}
+
+.control-button.primary .button-label {
+	color: white;
+}
+
+.control-button.primary:hover {
+	background: #1765cc;
+	transform: translateX(-4px) scale(1.02);
+}
+
+.control-button.danger {
+	background: #fff;
+}
+
+.control-button.danger svg {
+	color: #d93025;
+}
+
+.control-button.danger .button-label {
+	color: #d93025;
+}
+
+.control-button.danger:hover {
+	background: #fef7f7;
+}
+
+#voice-button {
+	background: #34a853;
+}
+
+#voice-button svg {
+	color: white;
+}
+
+#voice-button .button-label {
+	color: white;
+}
+
+#voice-button:hover {
+	background: #2d9248;
+}
+
+#voice-button.active {
+	animation: voice-pulse 2s ease-in-out infinite;
+}
+
+@keyframes voice-pulse {
+	0%,
+	100% {
+		box-shadow: 0 2px 8px rgba(52, 168, 83, 0.3), 0 1px 3px rgba(52, 168, 83, 0.2);
+	}
+	50% {
+		box-shadow: 0 4px 20px rgba(52, 168, 83, 0.5),
+			0 2px 8px rgba(52, 168, 83, 0.3);
+	}
 }
 
 /* Custom Leaflet Styles */
@@ -599,17 +674,48 @@ label {
 	#distance-info {
 		font-size: 0.85rem;
 	}
+
+	.control-buttons-container {
+		bottom: 12px;
+		right: 12px;
+		gap: 8px;
+	}
+
+	.control-button {
+		height: 48px;
+		min-width: 48px;
+		padding: 0 14px;
+		font-size: 13px;
+	}
+
+	.control-button svg {
+		width: 18px;
+		height: 18px;
+	}
+
+	.button-label {
+		font-size: 13px;
+	}
 }
 
 /* Touch optimization for mobile */
 @media (hover: none) {
 	.control-button:hover {
-		transform: none;
+		transform: translateX(-4px);
+		background: white;
 	}
 
 	.control-button:active {
-		transform: scale(0.95);
+		transform: translateX(-4px) scale(0.95);
 		background: #f0f0f0;
+	}
+
+	.control-button.primary:hover {
+		background: #1a73e8;
+	}
+
+	.control-button.primary:active {
+		background: #1765cc;
 	}
 }
 
