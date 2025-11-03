@@ -638,14 +638,14 @@ body {
 
 .user-marker-arrow {
 	position: absolute;
-	top: -2px;
+	top: -4px;
 	width: 0;
 	height: 0;
-	border-left: 8px solid transparent;
-	border-right: 8px solid transparent;
-	border-bottom: 20px solid #4285f4;
+	border-left: 10px solid transparent;
+	border-right: 10px solid transparent;
+	border-bottom: 24px solid #4285f4;
 	z-index: 1;
-	filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+	filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
 }
 
 .user-accuracy {

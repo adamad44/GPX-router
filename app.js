@@ -665,10 +665,9 @@ function requestLocationPermission() {
 	// This triggers the native browser permission popup (including iOS Safari)
 	closeLocationModal();
 
-	// Request compass access while we're still in a user gesture (iOS requirement)
-	if (state.rotationMode === "compass") {
-		enableDeviceCompass();
-	}
+	// Request compass access immediately while we're still in a user gesture (iOS requirement)
+	// This ensures we always have compass data for the direction arrow
+	enableDeviceCompass();
 
 	// Make a one-time position request to trigger native permission dialog
 	navigator.geolocation.getCurrentPosition(
@@ -824,25 +823,34 @@ function handlePositionUpdate(position) {
 	const { latitude, longitude, accuracy, heading } = position.coords;
 	state.userPosition = [latitude, longitude];
 
-	// Calculate heading if not provided by GPS
+	// Calculate heading if not provided by GPS or if we have movement
 	let calculatedHeading = heading;
-	if (
-		(calculatedHeading === null || calculatedHeading === undefined) &&
-		state.lastPosition
-	) {
-		calculatedHeading = calculateBearing(state.lastPosition, [
+	if (state.lastPosition) {
+		// Calculate bearing from movement
+		const movementHeading = calculateBearing(state.lastPosition, [
 			latitude,
 			longitude,
 		]);
+
+		// Use movement heading if GPS heading is not available or if we've moved significantly
+		const distanceMoved = calculateDistance(state.lastPosition, [
+			latitude,
+			longitude,
+		]);
+		if (distanceMoved > 2) {
+			// Only update if moved more than 2 meters
+			calculatedHeading = movementHeading;
+		}
 	}
 
-	// Update heading if we have movement
+	// Update heading if we have a valid value
 	if (
 		calculatedHeading !== null &&
 		calculatedHeading !== undefined &&
 		!isNaN(calculatedHeading)
 	) {
 		state.gpsHeading = calculatedHeading;
+		// If we don't have compass data, use GPS heading
 		if (!state.orientationListenerActive || state.deviceHeading === null) {
 			state.currentHeading = calculatedHeading;
 		}
@@ -924,8 +932,6 @@ function disableDeviceCompass() {
 }
 
 function onDeviceOrientation(event) {
-	if (state.rotationMode !== "compass") return;
-
 	let headingDeg = null;
 	// iOS Safari provides webkitCompassHeading (0 = North, clockwise)
 	if (typeof event.webkitCompassHeading === "number") {
@@ -937,8 +943,19 @@ function onDeviceOrientation(event) {
 
 	if (headingDeg !== null && !isNaN(headingDeg)) {
 		state.deviceHeading = headingDeg;
+		// Always update current heading for the arrow, regardless of rotation mode
 		state.currentHeading = headingDeg;
-		console.log("Device heading:", headingDeg); // Debug log
+
+		// Update the user marker to show the new heading
+		if (state.userPosition && state.userMarker) {
+			updateUserMarker(
+				state.userPosition[0],
+				state.userPosition[1],
+				state.userAccuracyCircle ? state.userAccuracyCircle.getRadius() : 10
+			);
+		}
+
+		// Apply map rotation only if in compass mode
 		if (state.rotationMode === "compass") {
 			applyMapRotation();
 		}
@@ -1098,8 +1115,22 @@ function setMapBearing(angleDeg) {
 
 // Update User Marker with heading indicator
 function updateUserMarker(lat, lon, accuracy) {
-	// Get current heading for display
-	let displayHeading = state.currentHeading || 0;
+	// Get current heading for display - prioritize device compass, fall back to GPS heading
+	let displayHeading = 0;
+
+	if (state.deviceHeading !== null && state.deviceHeading !== undefined) {
+		// Use device compass heading if available
+		displayHeading = state.deviceHeading;
+	} else if (state.gpsHeading !== null && state.gpsHeading !== undefined) {
+		// Fall back to GPS-calculated heading
+		displayHeading = state.gpsHeading;
+	} else if (
+		state.currentHeading !== null &&
+		state.currentHeading !== undefined
+	) {
+		// Last resort: use any stored heading
+		displayHeading = state.currentHeading;
+	}
 
 	// Create custom user marker icon with heading indicator
 	const userIcon = L.divIcon({
@@ -1108,8 +1139,8 @@ function updateUserMarker(lat, lon, accuracy) {
 		iconAnchor: [20, 20],
 		html: `
 			<div class="user-marker-wrapper" style="transform: rotate(${displayHeading}deg)">
-				<div class="user-marker-dot"></div>
 				<div class="user-marker-arrow"></div>
+				<div class="user-marker-dot"></div>
 			</div>
 		`,
 	});
