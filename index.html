@@ -26,31 +26,71 @@
 	</head>
 	<body>
 		<div id="app">
-			<!-- Upload Section -->
+			<!-- Landing Page -->
 			<div id="upload-section" class="section">
-				<div class="upload-container">
-					<h1>GPX Navigator</h1>
-					<p>Choose a preset route or upload your own GPX file</p>
+				<div class="landing-container">
+					<header class="landing-header">
+						<h1 class="app-title">GPX Navigator</h1>
+						<p class="app-subtitle">
+							Turn-by-turn navigation for driving test routes
+						</p>
+					</header>
 
-					<!-- Preset Routes -->
-					<div class="preset-routes">
-						<h3>Preset Routes</h3>
-						<div id="route-grid" class="route-grid">
-							<!-- Routes will be loaded here dynamically -->
+					<!-- Test Centre Selection -->
+					<div class="test-centre-section">
+						<h2 class="section-title">Select Test Centre</h2>
+						<div id="test-centre-list" class="test-centre-list">
+							<!-- Test centres will be loaded here -->
+						</div>
+					</div>
+
+					<!-- Route Selection (shown after centre selected) -->
+					<div id="route-section" class="route-section hidden">
+						<div class="section-header">
+							<button id="back-button" class="back-button">
+								<svg
+									width="20"
+									height="20"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+								>
+									<line x1="19" y1="12" x2="5" y2="12"></line>
+									<polyline points="12 19 5 12 12 5"></polyline>
+								</svg>
+								Back
+							</button>
+							<h2 class="section-title" id="route-section-title">Routes</h2>
+						</div>
+						<div id="route-list" class="route-list">
+							<!-- Routes will be loaded here -->
 						</div>
 					</div>
 
 					<div class="divider">
-						<span>OR</span>
+						<span>or</span>
 					</div>
 
 					<!-- Custom Upload -->
 					<div class="custom-upload">
 						<input type="file" id="gpx-file-input" accept=".gpx" />
-						<label for="gpx-file-input" class="upload-button"
-							>Upload Your Own GPX</label
-						>
-						<div id="file-info"></div>
+						<label for="gpx-file-input" class="upload-button">
+							<svg
+								width="20"
+								height="20"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+								<polyline points="17 8 12 3 7 8"></polyline>
+								<line x1="12" y1="3" x2="12" y2="15"></line>
+							</svg>
+							Upload Custom GPX File
+						</label>
+						<div id="file-info" class="file-info"></div>
 					</div>
 				</div>
 			</div>

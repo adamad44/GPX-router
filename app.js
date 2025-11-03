@@ -39,26 +39,35 @@ const START_POINT_THRESHOLD = 50; // 50 meters to consider "reached start"
 const OSRM_API = "https://router.project-osrm.org/route/v1/driving/";
 const USER_VIEW_OFFSET_RATIO = 0.4; // keep user marker near bottom of screen (increased from 0.28)
 
-// Preset Routes
-const PRESET_ROUTES = [
-	{ id: 1, file: "Farnborough 07.0922.gpx" },
-	{ id: 2, file: "Farnborough 1.0921.gpx" },
-	{ id: 3, file: "Farnborough 10.0921.gpx" },
-	{ id: 4, file: "Farnborough 11.0921.gpx" },
-	{ id: 5, file: "Farnborough 12.0822.gpx" },
-	{ id: 6, file: "Farnborough 2.1121.gpx" },
-	{ id: 7, file: "Farnborough 3.0122.gpx" },
-	{ id: 8, file: "Farnborough 4.0322.gpx" },
-	{ id: 9, file: "Farnborough-05.2203 (1).gpx" },
-	{ id: 10, file: "Farnborough-06.2402.gpx" },
-	{ id: 11, file: "Farnborough-08.2402.gpx" },
-	{ id: 12, file: "Farnborough-09.2310.gpx" },
-];
+// Test Centres Configuration
+const TEST_CENTRES = {
+	farnborough: {
+		name: "Farnborough",
+		location: "Hampshire",
+		routes: [
+			{ id: 1, file: "farnborough/Farnborough 07.0922.gpx", name: "Route 1" },
+			{ id: 2, file: "farnborough/Farnborough 1.0921.gpx", name: "Route 2" },
+			{ id: 3, file: "farnborough/Farnborough 10.0921.gpx", name: "Route 3" },
+			{ id: 4, file: "farnborough/Farnborough 11.0921.gpx", name: "Route 4" },
+			{ id: 5, file: "farnborough/Farnborough 12.0822.gpx", name: "Route 5" },
+			{ id: 6, file: "farnborough/Farnborough 2.1121.gpx", name: "Route 6" },
+			{ id: 7, file: "farnborough/Farnborough 3.0122.gpx", name: "Route 7" },
+			{ id: 8, file: "farnborough/Farnborough 4.0322.gpx", name: "Route 8" },
+			{ id: 9, file: "farnborough/Farnborough-05.2203 (1).gpx", name: "Route 9" },
+			{ id: 10, file: "farnborough/Farnborough-06.2402.gpx", name: "Route 10" },
+			{ id: 11, file: "farnborough/Farnborough-08.2402.gpx", name: "Route 11" },
+			{ id: 12, file: "farnborough/Farnborough-09.2310.gpx", name: "Route 12" },
+		],
+	},
+	// Add more test centres here in the future
+};
+
+let selectedTestCentre = null;
 
 // Initialize the application
 document.addEventListener("DOMContentLoaded", () => {
 	initializeEventListeners();
-	loadPresetRoutes();
+	loadTestCentres();
 	preventZoom();
 
 	// Load voices for speech synthesis
@@ -131,6 +140,7 @@ function initializeEventListeners() {
 	const cancelLocationBtn = document.getElementById("cancel-location-btn");
 	const togglePreviewButton = document.getElementById("toggle-preview-button");
 	const toggleRotationButton = document.getElementById("toggle-rotation-button");
+	const backButton = document.getElementById("back-button");
 
 	fileInput.addEventListener("change", handleFileUpload);
 	centerButton.addEventListener("click", centerMapOnUser);
@@ -139,6 +149,7 @@ function initializeEventListeners() {
 	cancelLocationBtn.addEventListener("click", closeLocationModal);
 	togglePreviewButton.addEventListener("click", togglePreviewRoute);
 	toggleRotationButton.addEventListener("click", toggleMapRotation);
+	if (backButton) backButton.addEventListener("click", goBackToTestCentres);
 }
 
 // Toggle Preview Route
@@ -192,132 +203,149 @@ function toggleMapRotation() {
 	}
 }
 
-// Load Preset Routes into Grid with inline previews
-async function loadPresetRoutes() {
-	const routeGrid = document.getElementById("route-grid");
-	if (!routeGrid) return;
+// Load Test Centres
+function loadTestCentres() {
+	const container = document.getElementById("test-centre-list");
+	if (!container) return;
 
-	Object.values(state.previewMaps || {}).forEach((mapInstance) => {
-		if (mapInstance && typeof mapInstance.remove === "function") {
-			mapInstance.remove();
-		}
+	container.innerHTML = "";
+
+	Object.keys(TEST_CENTRES).forEach((centreKey) => {
+		const centre = TEST_CENTRES[centreKey];
+		const card = document.createElement("div");
+		card.className = "test-centre-card";
+		card.innerHTML = `
+			<div class="centre-icon">
+				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+					<circle cx="12" cy="10" r="3"></circle>
+				</svg>
+			</div>
+			<div class="centre-info">
+				<h3 class="centre-name">${centre.name}</h3>
+				<p class="centre-location">${centre.location}</p>
+				<p class="centre-routes">${centre.routes.length} routes available</p>
+			</div>
+			<svg class="centre-arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<polyline points="9 18 15 12 9 6"></polyline>
+			</svg>
+		`;
+
+		card.addEventListener("click", () => selectTestCentre(centreKey));
+		container.appendChild(card);
 	});
+}
 
-	routeGrid.innerHTML = "";
+// Select a test centre and show its routes
+function selectTestCentre(centreKey) {
+	selectedTestCentre = centreKey;
+	const centre = TEST_CENTRES[centreKey];
+
+	// Hide test centre list, show routes
+	document.querySelector(".test-centre-section").classList.add("hidden");
+	const routeSection = document.getElementById("route-section");
+	routeSection.classList.remove("hidden");
+
+	// Update title
+	document.getElementById(
+		"route-section-title"
+	).textContent = `${centre.name} Routes`;
+
+	// Load routes for this centre
+	loadRoutes(centre.routes);
+}
+
+// Go back to test centre selection
+function goBackToTestCentres() {
+	selectedTestCentre = null;
+	document.querySelector(".test-centre-section").classList.remove("hidden");
+	document.getElementById("route-section").classList.add("hidden");
+
+	// Clear any loaded route data
 	state.presetRoutes = {};
-	state.previewMaps = {};
+	const routeList = document.getElementById("route-list");
+	if (routeList) routeList.innerHTML = "";
+}
 
-	for (const route of PRESET_ROUTES) {
-		const displayName = getRouteDisplayName(route.file);
-		const routeNumber = route.id.toString().padStart(2, "0");
+// Load routes for selected test centre
+async function loadRoutes(routes) {
+	const container = document.getElementById("route-list");
+	if (!container) return;
 
+	container.innerHTML = "";
+	state.presetRoutes = {};
+
+	for (const route of routes) {
 		const card = document.createElement("div");
 		card.className = "route-card";
 		card.innerHTML = `
-			<div class="route-card-header">
-				<span class="route-number">${routeNumber}</span>
-				<div class="route-meta">
-					<div class="route-title">Route ${routeNumber}</div>
-					<div class="route-filename">${displayName}</div>
+			<div class="route-header">
+				<div class="route-number">${route.id}</div>
+				<div class="route-info">
+					<h4 class="route-name">${route.name}</h4>
+					<p class="route-status" id="route-status-${route.id}">Loading...</p>
 				</div>
 			</div>
-			<div class="route-preview-map" id="route-map-${route.id}"></div>
-			<div class="route-card-stats">
-				<div class="stat">
-					<span class="stat-label">Distance</span>
-					<span class="stat-value" id="route-distance-${route.id}">Loading…</span>
-				</div>
-				<div class="stat">
-					<span class="stat-label">Points</span>
-					<span class="stat-value" id="route-points-${route.id}">-</span>
-				</div>
-			</div>
-			<button class="route-card-button" data-route-id="${route.id}">Load Route ${routeNumber}</button>
+			<button class="route-button" id="route-button-${route.id}" disabled>
+				<span>Loading...</span>
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<polyline points="9 18 15 12 9 6"></polyline>
+				</svg>
+			</button>
 		`;
 
-		routeGrid.appendChild(card);
+		container.appendChild(card);
 
-		const loadButton = card.querySelector(".route-card-button");
-		loadButton.disabled = true;
-		loadButton.textContent = "Loading…";
-
-		// Load route data asynchronously (don't block other cards)
+		// Load route data
 		(async () => {
 			try {
 				const response = await fetch(`routes/${route.file}`);
-				if (!response.ok) {
-					throw new Error(`HTTP ${response.status}`);
-				}
+				if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
 				const gpxText = await response.text();
 				const points = parseGPX(gpxText);
 
-				if (points.length === 0) {
-					throw new Error("No route points found");
-				}
+				if (points.length === 0) throw new Error("No route points found");
 
 				state.presetRoutes[route.id] = {
 					file: route.file,
 					points,
-					displayName,
-					routeNumber,
+					name: route.name,
 				};
 
 				const totalDistance = calculateRouteDistance(points);
-				document.getElementById(`route-distance-${route.id}`).textContent =
-					formatDistance(totalDistance);
-				document.getElementById(`route-points-${route.id}`).textContent =
-					points.length;
+				const statusEl = document.getElementById(`route-status-${route.id}`);
+				if (statusEl) {
+					statusEl.textContent = `${formatDistance(totalDistance)} • ${
+						points.length
+					} points`;
+				}
 
-				// Wait for DOM to be ready, then initialize map
-				setTimeout(() => {
-					const mapElement = document.getElementById(`route-map-${route.id}`);
-					if (!mapElement) {
-						console.error(`Map element not found for route ${route.id}`);
-						return;
-					}
-
-					const previewMap = L.map(`route-map-${route.id}`, {
-						attributionControl: false,
-						zoomControl: false,
-						dragging: false,
-						scrollWheelZoom: false,
-						doubleClickZoom: false,
-						boxZoom: false,
-						keyboard: false,
-					});
-
-					L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-						maxZoom: 19,
-					}).addTo(previewMap);
-
-					const polyline = L.polyline(points, {
-						color: "#667eea",
-						weight: 4,
-						opacity: 0.9,
-					}).addTo(previewMap);
-
-					previewMap.fitBounds(polyline.getBounds(), { padding: [10, 10] });
-					setTimeout(() => previewMap.invalidateSize(), 100);
-
-					state.previewMaps[route.id] = previewMap;
-
-					loadButton.disabled = false;
-					loadButton.textContent = `Load Route ${routeNumber}`;
-				}, 50);
+				const button = document.getElementById(`route-button-${route.id}`);
+				if (button) {
+					button.disabled = false;
+					button.querySelector("span").textContent = "Start Navigation";
+					button.addEventListener("click", () => loadPresetRoute(route.id));
+				}
 			} catch (error) {
-				console.error(`Error loading preset route ${route.file}:`, error);
-				const distEl = document.getElementById(`route-distance-${route.id}`);
-				const pointsEl = document.getElementById(`route-points-${route.id}`);
-				if (distEl) distEl.textContent = "Error";
-				if (pointsEl) pointsEl.textContent = "-";
-				loadButton.disabled = true;
-				loadButton.textContent = "Unavailable";
+				console.error(`Error loading route ${route.file}:`, error);
+				const statusEl = document.getElementById(`route-status-${route.id}`);
+				if (statusEl) statusEl.textContent = "Failed to load";
+
+				const button = document.getElementById(`route-button-${route.id}`);
+				if (button) {
+					button.disabled = true;
+					button.querySelector("span").textContent = "Unavailable";
+				}
 			}
 		})();
-
-		loadButton.addEventListener("click", () => loadPresetRoute(route.id));
 	}
+}
+
+// Legacy function - kept for compatibility
+async function loadPresetRoutes() {
+	// This function is no longer used but kept for backward compatibility
+	loadTestCentres();
 }
 
 function getRouteDisplayName(fileName) {
@@ -1490,7 +1518,9 @@ function resetApp() {
 	document.getElementById("gpx-file-input").value = "";
 	document.getElementById("file-info").textContent = "";
 
-	loadPresetRoutes();
+	// Reset to test centre selection
+	goBackToTestCentres();
+	loadTestCentres();
 }
 
 // ============================================
