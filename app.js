@@ -832,10 +832,21 @@ function setMapBearing(angleDeg) {
 
 	console.log("setMapBearing called with:", angleDeg); // Debug log
 
-	// First, center the map on user position before rotating
+	// Center the map on user position with offset before rotating
 	if (state.userPosition && state.rotationMode === "compass") {
-		// Center map on user position without animation before rotating
-		state.map.setView(state.userPosition, state.map.getZoom(), {
+		// Use centerOnLatLngWithOffset to position GPS at bottom of screen
+		const mapSize = state.map.getSize();
+		const offsetY = mapSize.y * USER_VIEW_OFFSET_RATIO;
+		
+		// Project the GPS position to pixel coordinates
+		const projected = state.map.project(state.userPosition, state.map.getZoom());
+		
+		// Keep the original X coordinate but offset the Y coordinate
+		const offsetPoint = L.point(projected.x, projected.y - offsetY);
+		const centerLatLng = state.map.unproject(offsetPoint, state.map.getZoom());
+		
+		// Center map on offset position without animation before rotating
+		state.map.setView(centerLatLng, state.map.getZoom(), {
 			animate: false,
 			duration: 0
 		});
@@ -1136,7 +1147,7 @@ function toggleVoiceNavigation() {
 	}
 
 	if (state.voiceEnabled) {
-		speak("Voice navigation enabled");
+		speak("Voice navigation is now enabled. You will hear turn-by-turn directions during navigation.");
 	}
 }
 
