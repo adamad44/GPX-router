@@ -1415,10 +1415,14 @@ function centerOnLatLngWithOffset(latlng, zoom, animationOptions = {}) {
 	const targetZoom = zoom ?? map.getZoom() ?? 16;
 	const mapSize = map.getSize();
 	const offsetY = mapSize.y * USER_VIEW_OFFSET_RATIO;
+	
+	// Project the GPS position to pixel coordinates
 	const projected = map.project(latlng, targetZoom);
-	// Use the center X coordinate (no horizontal offset) and apply vertical offset
-	const offsetPoint = L.point(mapSize.x / 2, projected.y - offsetY);
+	
+	// Keep the original X coordinate but offset the Y coordinate
+	const offsetPoint = L.point(projected.x, projected.y - offsetY);
 	const centerLatLng = map.unproject(offsetPoint, targetZoom);
+	
 	map.setView(centerLatLng, targetZoom, {
 		animate: true,
 		duration: 0.5,
