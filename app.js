@@ -1132,13 +1132,25 @@ function updateUserMarker(lat, lon, accuracy) {
 		displayHeading = state.currentHeading;
 	}
 
+	// Get the current map bearing to counter-rotate the arrow
+	let mapBearing = 0;
+	if (state.map) {
+		if (typeof state.map.getBearing === "function") {
+			mapBearing = state.map.getBearing();
+		}
+	}
+
+	// Counter-rotate the arrow so it points true north relative to the screen
+	// When map rotates clockwise, arrow needs to rotate counter-clockwise by the same amount
+	const arrowRotation = displayHeading - mapBearing;
+
 	// Create custom user marker icon with heading indicator
 	const userIcon = L.divIcon({
 		className: "user-marker-container",
 		iconSize: [40, 40],
 		iconAnchor: [20, 20],
 		html: `
-			<div class="user-marker-wrapper" style="transform: rotate(${displayHeading}deg)">
+			<div class="user-marker-wrapper" style="transform: rotate(${arrowRotation}deg)">
 				<div class="user-marker-arrow"></div>
 				<div class="user-marker-dot"></div>
 			</div>
