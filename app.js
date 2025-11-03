@@ -832,60 +832,36 @@ function setMapBearing(angleDeg) {
 
 	console.log("setMapBearing called with:", angleDeg); // Debug log
 
-	// Set rotation origin to user's position if available
-	if (state.userPosition) {
-		const userPoint = state.map.latLngToContainerPoint(state.userPosition);
-		const mapContainer = state.map.getContainer();
-		const originX = (userPoint.x / mapContainer.offsetWidth) * 100;
-		const originY = (userPoint.y / mapContainer.offsetHeight) * 100;
-		
-		// Leaflet-rotate plugin method with custom rotation origin
-		if (typeof state.map.setBearing === "function") {
-			console.log("Using setBearing with custom origin"); // Debug log
-			state.map._rotatePane.style.transformOrigin = `${originX}% ${originY}%`;
-			state.map.setBearing(angleDeg);
-			return;
-		}
-		
-		// Alternative rotate method
-		if (typeof state.map.rotateTo === "function") {
-			console.log("Using rotateTo with custom origin"); // Debug log
-			state.map._rotatePane.style.transformOrigin = `${originX}% ${originY}%`;
-			state.map.rotateTo(angleDeg);
-			return;
-		}
-		
-		// Fallback: rotate the map pane with custom origin
-		const pane = state.map.getPane && state.map.getPane("mapPane");
-		if (pane) {
-			pane.style.transformOrigin = `${originX}% ${originY}%`;
-			pane.style.transition = "transform 0.2s ease-out";
-			pane.style.transform = `rotate(${angleDeg}deg)`;
-		}
-	} else {
-		// Default behavior if user position is not available
-		// Leaflet-rotate plugin method
-		if (typeof state.map.setBearing === "function") {
-			console.log("Using setBearing"); // Debug log
-			state.map.setBearing(angleDeg);
-			return;
-		}
+	// First, center the map on user position before rotating
+	if (state.userPosition && state.rotationMode === "compass") {
+		// Center map on user position without animation before rotating
+		state.map.setView(state.userPosition, state.map.getZoom(), {
+			animate: false,
+			duration: 0
+		});
+	}
 
-		// Alternative rotate method
-		if (typeof state.map.rotateTo === "function") {
-			console.log("Using rotateTo"); // Debug log
-			state.map.rotateTo(angleDeg);
-			return;
-		}
+	// Use the Leaflet-rotate plugin methods if available
+	if (typeof state.map.setBearing === "function") {
+		console.log("Using setBearing"); // Debug log
+		state.map.setBearing(angleDeg);
+		return;
+	}
 
-		console.log("Using CSS fallback"); // Debug log
-		// Fallback: rotate the map pane (controls inside map will rotate too)
-		const pane = state.map.getPane && state.map.getPane("mapPane");
-		if (pane) {
-			pane.style.transformOrigin = "50% 50%";
-			pane.style.transition = "transform 0.2s ease-out";
-			pane.style.transform = `rotate(${angleDeg}deg)`;
-		}
+	// Alternative rotate method
+	if (typeof state.map.rotateTo === "function") {
+		console.log("Using rotateTo"); // Debug log
+		state.map.rotateTo(angleDeg);
+		return;
+	}
+
+	console.log("Using CSS fallback"); // Debug log
+	// Fallback: rotate the map pane (controls inside map will rotate too)
+	const pane = state.map.getPane && state.map.getPane("mapPane");
+	if (pane) {
+		pane.style.transformOrigin = "50% 50%";
+		pane.style.transition = "transform 0.2s ease-out";
+		pane.style.transform = `rotate(${angleDeg}deg)`;
 	}
 }
 
