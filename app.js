@@ -61,15 +61,30 @@ const TEST_CENTRES = {
 			{ id: 12, file: "farnborough/Farnborough-09.2310.gpx", name: "Route 12" },
 		],
 	},
-	// Add more test centres here in the future
-	// Example:
-	// manchester: {
-	//     name: "Manchester",
-	//     location: "Greater Manchester",
-	//     routes: [
-	//         { id: 1, file: "manchester/Route1.gpx", name: "Route 1" },
-	//     ]
-	// }
+	basingstoke: {
+		name: "Basingstoke",
+		location: "Hampshire",
+		routes: [
+			{ id: 1, file: "basingstoke/Basingstoke-03.2209.gpx", name: "Route 3" },
+			{ id: 2, file: "basingstoke/Basingstoke-04.2404.gpx", name: "Route 4" },
+			{
+				id: 3,
+				file: "basingstoke/Basingstoke-05.2209-1.gpx",
+				name: "Route 5 (Alt)",
+			},
+			{ id: 4, file: "basingstoke/Basingstoke-05.2209.gpx", name: "Route 5" },
+			{ id: 5, file: "basingstoke/Basingstoke-06.2211.gpx", name: "Route 6" },
+			{ id: 6, file: "basingstoke/Basingstoke-07.2211.gpx", name: "Route 7" },
+			{ id: 7, file: "basingstoke/Basingstoke-08.2211.gpx", name: "Route 8" },
+			{ id: 8, file: "basingstoke/Basingstoke-09.2301-1.gpx", name: "Route 9" },
+			{ id: 9, file: "basingstoke/Basingstoke-10.2309.gpx", name: "Route 10" },
+			{
+				id: 10,
+				file: "basingstoke/Basingstoke_Satnav_1.gpx",
+				name: "Satnav Route 1",
+			},
+		],
+	},
 };
 
 let selectedTestCentre = null;
