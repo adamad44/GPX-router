@@ -26,11 +26,6 @@ const state = {
 	orientationListenerActive: false,
 	deviceHeading: null,
 	gpsHeading: null,
-	voiceEnabled: true,
-	navigationSteps: [],
-	currentStepIndex: -1,
-	lastAnnouncedStep: -1,
-	speechSynthesis: null,
 };
 
 // Constants
@@ -59,7 +54,6 @@ const PRESET_ROUTES = [
 document.addEventListener("DOMContentLoaded", () => {
 	initializeEventListeners();
 	loadPresetRoutes();
-	initVoiceNavigation();
 	preventZoom();
 });
 
@@ -122,7 +116,6 @@ function initializeEventListeners() {
 	const cancelLocationBtn = document.getElementById("cancel-location-btn");
 	const togglePreviewButton = document.getElementById("toggle-preview-button");
 	const toggleRotationButton = document.getElementById("toggle-rotation-button");
-	const toggleVoiceButton = document.getElementById("toggle-voice-button");
 
 	fileInput.addEventListener("change", handleFileUpload);
 	centerButton.addEventListener("click", centerMapOnUser);
@@ -131,7 +124,6 @@ function initializeEventListeners() {
 	cancelLocationBtn.addEventListener("click", closeLocationModal);
 	togglePreviewButton.addEventListener("click", togglePreviewRoute);
 	toggleRotationButton.addEventListener("click", toggleMapRotation);
-	toggleVoiceButton.addEventListener("click", toggleVoiceNavigation);
 }
 
 // Toggle Preview Route
@@ -545,6 +537,7 @@ function initializeMap() {
 	// Disable auto-center when user manually pans the map
 	state.map.on("dragstart", () => {
 		state.autoCenterEnabled = false;
+		updateCenterButtonState();
 	});
 }
 
@@ -590,6 +583,9 @@ function startGPSTracking() {
 	if (state.rotationMode !== "off") {
 		applyMapRotation();
 	}
+
+	// Initialize center button state
+	updateCenterButtonState();
 
 	state.watchId = navigator.geolocation.watchPosition(
 		handlePositionUpdate,
@@ -837,18 +833,18 @@ function setMapBearing(angleDeg) {
 		// Use centerOnLatLngWithOffset to position GPS at bottom of screen
 		const mapSize = state.map.getSize();
 		const offsetY = mapSize.y * USER_VIEW_OFFSET_RATIO;
-		
+
 		// Project the GPS position to pixel coordinates
 		const projected = state.map.project(state.userPosition, state.map.getZoom());
-		
+
 		// Keep the original X coordinate but offset the Y coordinate
 		const offsetPoint = L.point(projected.x, projected.y - offsetY);
 		const centerLatLng = state.map.unproject(offsetPoint, state.map.getZoom());
-		
+
 		// Center map on offset position without animation before rotating
 		state.map.setView(centerLatLng, state.map.getZoom(), {
 			animate: false,
-			duration: 0
+			duration: 0,
 		});
 	}
 
@@ -876,17 +872,30 @@ function setMapBearing(angleDeg) {
 	}
 }
 
-// Update User Marker
+// Update User Marker with heading indicator
 function updateUserMarker(lat, lon, accuracy) {
-	// Create custom user marker icon
+	// Get current heading for display
+	let displayHeading = state.currentHeading || 0;
+
+	// Create custom user marker icon with heading indicator
 	const userIcon = L.divIcon({
-		className: "user-marker",
-		iconSize: [20, 20],
-		iconAnchor: [10, 10],
+		className: "user-marker-container",
+		iconSize: [40, 40],
+		iconAnchor: [20, 20],
+		html: `
+			<div class="user-marker-wrapper" style="transform: rotate(${displayHeading}deg)">
+				<div class="user-marker-dot"></div>
+				<div class="user-marker-arrow"></div>
+			</div>
+		`,
 	});
 
 	if (!state.userMarker) {
-		state.userMarker = L.marker([lat, lon], { icon: userIcon }).addTo(state.map);
+		state.userMarker = L.marker([lat, lon], {
+			icon: userIcon,
+			rotationAngle: 0,
+			rotationOrigin: "center",
+		}).addTo(state.map);
 		state.userAccuracyCircle = L.circle([lat, lon], {
 			radius: accuracy,
 			className: "user-accuracy",
@@ -894,6 +903,7 @@ function updateUserMarker(lat, lon, accuracy) {
 		}).addTo(state.map);
 	} else {
 		state.userMarker.setLatLng([lat, lon]);
+		state.userMarker.setIcon(userIcon);
 		state.userAccuracyCircle.setLatLng([lat, lon]);
 		state.userAccuracyCircle.setRadius(accuracy);
 	}
@@ -919,9 +929,6 @@ async function updateNavigation() {
 			`Navigating to route start (${formatDistance(distanceToStart)})`
 		);
 		await updateApproachRoute();
-
-		// Check for voice navigation instructions (only when approaching via OSRM route)
-		checkNavigationSteps();
 	} else {
 		// Following GPX route
 		const progress = findNearestPointOnRoute(state.userPosition, state.gpxRoute);
@@ -1008,146 +1015,20 @@ async function getOSRMRoute(start, end) {
 			const coordinates = route.geometry.coordinates;
 
 			// Extract navigation steps for voice guidance
-			if (route.legs && route.legs.length > 0) {
-				state.navigationSteps = [];
-				route.legs.forEach((leg) => {
-					if (leg.steps) {
-						leg.steps.forEach((step) => {
-							if (
-								step.maneuver &&
-								step.maneuver.type !== "depart" &&
-								step.maneuver.type !== "arrive"
-							) {
-								state.navigationSteps.push({
-									location: [step.maneuver.location[1], step.maneuver.location[0]],
-									instruction:
-										step.maneuver.instruction || getManeuverInstruction(step.maneuver),
-									distance: step.distance,
-									type: step.maneuver.type,
-									modifier: step.maneuver.modifier,
-								});
-							}
-						});
-					}
-				});
-				console.log("Navigation steps loaded:", state.navigationSteps.length);
-			}
+			if (data.routes && data.routes.length > 0) {
+				const route = data.routes[0];
+				const coordinates = route.geometry.coordinates;
 
-			// Convert [lon, lat] to [lat, lon]
+				// Convert [lon, lat] to [lat, lon]
+				return coordinates.map((coord) => [coord[1], coord[0]]);
+			}
+			return null; // Convert [lon, lat] to [lat, lon]
 			return coordinates.map((coord) => [coord[1], coord[0]]);
 		}
 		return null;
 	} catch (error) {
 		console.error("OSRM API Error:", error);
 		return null;
-	}
-}
-
-// Generate instruction text from maneuver data
-function getManeuverInstruction(maneuver) {
-	const type = maneuver.type;
-	const modifier = maneuver.modifier;
-
-	const directions = {
-		turn: "Turn",
-		"new name": "Continue onto",
-		notification: "Continue",
-		merge: "Merge",
-		"on ramp": "Take the ramp",
-		"off ramp": "Take the exit",
-		fork: "At the fork,",
-		"end of road": "At the end of the road,",
-		continue: "Continue",
-		roundabout: "Enter the roundabout",
-		rotary: "Enter the rotary",
-		"roundabout turn": "At the roundabout, take exit",
-	};
-
-	const modifiers = {
-		uturn: "make a U-turn",
-		"sharp right": "turn sharp right",
-		right: "turn right",
-		"slight right": "turn slight right",
-		straight: "continue straight",
-		"slight left": "turn slight left",
-		left: "turn left",
-		"sharp left": "turn sharp left",
-	};
-
-	let instruction = directions[type] || "Continue";
-	if (modifier && modifiers[modifier]) {
-		instruction += " " + modifiers[modifier];
-	}
-
-	return instruction;
-}
-
-// Voice Navigation Functions
-function initVoiceNavigation() {
-	if ("speechSynthesis" in window) {
-		state.speechSynthesis = window.speechSynthesis;
-		console.log("Voice navigation initialized");
-	} else {
-		console.warn("Speech synthesis not supported");
-		state.voiceEnabled = false;
-	}
-}
-
-function speak(text) {
-	if (!state.voiceEnabled || !state.speechSynthesis) return;
-
-	// Cancel any ongoing speech
-	state.speechSynthesis.cancel();
-
-	const utterance = new SpeechSynthesisUtterance(text);
-	utterance.rate = 0.9;
-	utterance.pitch = 1.0;
-	utterance.volume = 1.0;
-
-	console.log("Speaking:", text);
-	state.speechSynthesis.speak(utterance);
-}
-
-function checkNavigationSteps() {
-	if (
-		!state.voiceEnabled ||
-		!state.userPosition ||
-		state.navigationSteps.length === 0
-	) {
-		return;
-	}
-
-	const ANNOUNCEMENT_DISTANCE = 100; // Announce 100 meters before turn
-
-	for (let i = 0; i < state.navigationSteps.length; i++) {
-		if (i <= state.lastAnnouncedStep) continue;
-
-		const step = state.navigationSteps[i];
-		const distance = calculateDistance(state.userPosition, step.location);
-
-		// Announce when within range
-		if (distance <= ANNOUNCEMENT_DISTANCE && distance > 20) {
-			const distanceText =
-				distance > 50 ? `In ${Math.round(distance)} meters` : "Soon";
-
-			speak(`${distanceText}, ${step.instruction}`);
-			state.lastAnnouncedStep = i;
-			break;
-		}
-	}
-}
-
-function toggleVoiceNavigation() {
-	state.voiceEnabled = !state.voiceEnabled;
-
-	const button = document.getElementById("toggle-voice-button");
-	if (button) {
-		button.style.opacity = state.voiceEnabled ? "1" : "0.5";
-		button.title = state.voiceEnabled ? "Voice enabled" : "Voice disabled";
-	}
-
-	if (state.voiceEnabled) {
-		speak("Voice navigation is now enabled. You will hear turn-by-turn directions during navigation.");
 	}
 }
 
@@ -1435,14 +1316,26 @@ function centerOnLatLngWithOffset(latlng, zoom, animationOptions = {}) {
 	const targetZoom = zoom ?? map.getZoom() ?? 16;
 	const mapSize = map.getSize();
 	const offsetY = mapSize.y * USER_VIEW_OFFSET_RATIO;
-	
-	// Project the GPS position to pixel coordinates
+
+	// Get the current map bearing (rotation angle in degrees)
+	const bearing = map.getBearing ? map.getBearing() : 0;
+	const bearingRad = (bearing * Math.PI) / 180;
+
+	// Project the GPS position to pixel coordinates at the target zoom
 	const projected = map.project(latlng, targetZoom);
-	
-	// Keep the original X coordinate but offset the Y coordinate
-	const offsetPoint = L.point(projected.x, projected.y - offsetY);
+
+	// Apply offset accounting for map rotation
+	// When map is rotated, we need to rotate the offset vector as well
+	// Offset should always be "down" in screen space (positive Y in screen coordinates)
+	const offsetX = offsetY * Math.sin(bearingRad);
+	const offsetY_rotated = offsetY * Math.cos(bearingRad);
+
+	const offsetPoint = L.point(
+		projected.x - offsetX,
+		projected.y - offsetY_rotated
+	);
 	const centerLatLng = map.unproject(offsetPoint, targetZoom);
-	
+
 	map.setView(centerLatLng, targetZoom, {
 		animate: true,
 		duration: 0.5,
@@ -1451,15 +1344,38 @@ function centerOnLatLngWithOffset(latlng, zoom, animationOptions = {}) {
 	});
 }
 
-// Center Map on User
+// Center Map on User (also acts as auto-follow toggle)
 function centerMapOnUser() {
-	if (state.userPosition) {
+	if (!state.userPosition) return;
+
+	// Toggle auto-center when already enabled
+	if (state.autoCenterEnabled) {
+		state.autoCenterEnabled = false;
+		updateCenterButtonState();
+	} else {
 		state.autoCenterEnabled = true;
+		updateCenterButtonState();
 		// Use zoom level 17 for car navigation - appropriate for seeing road details
 		centerOnLatLngWithOffset(state.userPosition, 17, {
 			animate: true,
 			duration: 0.5,
 		});
+	}
+}
+
+// Update center button visual state based on auto-follow status
+function updateCenterButtonState() {
+	const button = document.getElementById("center-button");
+	if (button) {
+		if (state.autoCenterEnabled) {
+			button.style.opacity = "1";
+			button.style.background = "rgba(66, 133, 244, 0.2)";
+			button.title = "Auto-follow enabled - Click to disable";
+		} else {
+			button.style.opacity = "0.8";
+			button.style.background = "rgba(255, 255, 255, 0.1)";
+			button.title = "Auto-follow disabled - Click to center and enable";
+		}
 	}
 }
 

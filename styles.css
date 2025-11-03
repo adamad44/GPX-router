@@ -29,7 +29,8 @@ body {
 		#05060f 100%
 	);
 	color: #f5f7ff;
-	padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+	padding: env(safe-area-inset-top) env(safe-area-inset-right)
+		env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 #app {
@@ -164,32 +165,41 @@ body {
 }
 
 /* Mobile Touch Enhancements */
-.route-card, .upload-button, button {
-    cursor: pointer;
-    -webkit-touch-callout: none;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
+.route-card,
+.upload-button,
+button {
+	cursor: pointer;
+	-webkit-touch-callout: none;
+	-webkit-tap-highlight-color: transparent;
+	touch-action: manipulation;
 }
 
 /* iOS-specific button fixes */
-button, 
-input[type="button"], 
+button,
+input[type="button"],
 input[type="submit"] {
-    -webkit-appearance: none;
-    appearance: none;
-    border: none;
+	-webkit-appearance: none;
+	appearance: none;
+	border: none;
 }
 
 /* Improve scrolling on iOS */
-.route-grid, #upload-section {
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: thin;
+.route-grid,
+#upload-section {
+	-webkit-overflow-scrolling: touch;
+	scrollbar-width: thin;
 }
 
 /* Prevent text selection */
-h1, h2, h3, p, span, button, label {
-    -webkit-user-select: none;
-    user-select: none;
+h1,
+h2,
+h3,
+p,
+span,
+button,
+label {
+	-webkit-user-select: none;
+	user-select: none;
 }
 .preset-routes {
 	margin-bottom: 1.5rem;
@@ -512,13 +522,45 @@ h1, h2, h3, p, span, button, label {
 	font-family: inherit;
 }
 
-.user-marker {
-	width: 20px;
-	height: 20px;
+.user-marker-container {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.user-marker-wrapper {
+	position: relative;
+	width: 40px;
+	height: 40px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transform-origin: center;
+	transition: transform 0.3s ease-out;
+}
+
+.user-marker-dot {
+	width: 16px;
+	height: 16px;
 	background: #4285f4;
 	border: 3px solid white;
 	border-radius: 50%;
 	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	position: absolute;
+	z-index: 2;
+}
+
+.user-marker-arrow {
+	position: absolute;
+	top: -2px;
+	width: 0;
+	height: 0;
+	border-left: 8px solid transparent;
+	border-right: 8px solid transparent;
+	border-bottom: 20px solid #4285f4;
+	z-index: 1;
+	filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
 }
 
 .user-accuracy {
