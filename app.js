@@ -1416,7 +1416,8 @@ function centerOnLatLngWithOffset(latlng, zoom, animationOptions = {}) {
 	const mapSize = map.getSize();
 	const offsetY = mapSize.y * USER_VIEW_OFFSET_RATIO;
 	const projected = map.project(latlng, targetZoom);
-	const offsetPoint = L.point(projected.x, projected.y - offsetY);
+	// Use the center X coordinate (no horizontal offset) and apply vertical offset
+	const offsetPoint = L.point(mapSize.x / 2, projected.y - offsetY);
 	const centerLatLng = map.unproject(offsetPoint, targetZoom);
 	map.setView(centerLatLng, targetZoom, {
 		animate: true,
