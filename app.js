@@ -37,7 +37,7 @@ const state = {
 const LOOK_AHEAD_DISTANCE = 1609.34; // 1 mile in meters
 const START_POINT_THRESHOLD = 50; // 50 meters to consider "reached start"
 const OSRM_API = "https://router.project-osrm.org/route/v1/driving/";
-const USER_VIEW_OFFSET_RATIO = 0.28; // keep user marker near bottom of screen
+const USER_VIEW_OFFSET_RATIO = 0.4; // keep user marker near bottom of screen (increased from 0.28)
 
 // Preset Routes
 const PRESET_ROUTES = [
@@ -1430,7 +1430,8 @@ function centerOnLatLngWithOffset(latlng, zoom, animationOptions = {}) {
 function centerMapOnUser() {
 	if (state.userPosition) {
 		state.autoCenterEnabled = true;
-		centerOnLatLngWithOffset(state.userPosition, state.map.getZoom() || 16, {
+		// Use zoom level 17 for car navigation - appropriate for seeing road details
+		centerOnLatLngWithOffset(state.userPosition, 17, {
 			animate: true,
 			duration: 0.5,
 		});
