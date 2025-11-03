@@ -5,14 +5,12 @@
 	-webkit-user-select: none;
 	user-select: none;
 	-webkit-touch-callout: none;
-	touch-action: pan-x pan-y;
 	-webkit-tap-highlight-color: transparent;
 }
 
 html,
 body {
 	overscroll-behavior: none;
-	touch-action: pan-x pan-y;
 	-webkit-text-size-adjust: 100%;
 	height: 100%;
 	width: 100%;
@@ -72,6 +70,10 @@ body {
 	margin: 0 auto;
 	/* Ensure dark text on light background to avoid inheriting body's light text */
 	color: #111827;
+	/* Allow all touch actions for scrolling */
+	touch-action: auto;
+	-webkit-user-select: text;
+	user-select: text;
 }
 
 .landing-header {
@@ -143,6 +145,9 @@ body {
 	display: flex;
 	flex-direction: column;
 	gap: 0.75rem;
+	/* Allow scrolling within the list */
+	max-height: none;
+	overflow-y: visible;
 }
 
 .test-centre-card {
@@ -183,8 +188,7 @@ body {
 	cursor: pointer;
 	transition: all 0.2s;
 	display: flex;
-	justify-content: space-between;
-	align-items: center;
+	flex-direction: column;
 }
 
 .route-card:hover {
@@ -286,6 +290,9 @@ body {
 	border-radius: 8px;
 	font-size: 0.9rem;
 	color: #1a202c;
+	cursor: pointer;
+	-webkit-appearance: none;
+	appearance: none;
 }
 .route-button svg {
 	color: #9ca3af;
