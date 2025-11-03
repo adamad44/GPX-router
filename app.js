@@ -31,6 +31,8 @@ const state = {
 	currentVoiceStepIndex: 0,
 	announcedSteps: new Set(),
 	lastVoiceCheckPosition: null,
+	selectedTestCentre: null,
+	currentView: "centre-selection", // 'centre-selection', 'route-selection', 'navigation'
 };
 
 // Constants
@@ -150,6 +152,118 @@ function initializeEventListeners() {
 	togglePreviewButton.addEventListener("click", togglePreviewRoute);
 	toggleRotationButton.addEventListener("click", toggleMapRotation);
 	if (backButton) backButton.addEventListener("click", goBackToTestCentres);
+}
+
+// Load Test Centres
+function loadTestCentres() {
+	const testCentreList = document.getElementById("test-centre-list");
+	if (!testCentreList) return;
+
+	testCentreList.innerHTML = "";
+
+	Object.keys(TEST_CENTRES).forEach((centreKey) => {
+		const centre = TEST_CENTRES[centreKey];
+		const card = document.createElement("div");
+		card.className = "test-centre-card";
+		card.innerHTML = `
+			<h3 class="test-centre-name">${centre.name}</h3>
+			<p class="test-centre-location">${centre.location}</p>
+		`;
+		card.addEventListener("click", () => selectTestCentre(centreKey));
+		testCentreList.appendChild(card);
+	});
+}
+
+// Select Test Centre
+function selectTestCentre(centreKey) {
+	state.selectedTestCentre = centreKey;
+	const centre = TEST_CENTRES[centreKey];
+
+	// Update route section title
+	document.getElementById(
+		"route-section-title"
+	).textContent = `${centre.name} Routes`;
+
+	// Hide test centre selection, show route selection
+	document.querySelector(".test-centre-section").classList.add("hidden");
+	document.getElementById("route-section").classList.remove("hidden");
+
+	// Load routes for this centre
+	loadRoutesForCentre(centre);
+}
+
+// Go Back to Test Centres
+function goBackToTestCentres() {
+	state.selectedTestCentre = null;
+	document.querySelector(".test-centre-section").classList.remove("hidden");
+	document.getElementById("route-section").classList.add("hidden");
+}
+
+// Load Routes for Selected Centre
+function loadRoutesForCentre(centre) {
+	const routeList = document.getElementById("route-list");
+	if (!routeList) return;
+
+	routeList.innerHTML = "";
+
+	centre.routes.forEach((route) => {
+		const card = document.createElement("div");
+		card.className = "route-card";
+		card.innerHTML = `
+			<div class="route-info">
+				<h4 class="route-name">${route.name}</h4>
+			</div>
+			<svg class="route-arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<line x1="5" y1="12" x2="19" y2="12"></line>
+				<polyline points="12 5 19 12 12 19"></polyline>
+			</svg>
+		`;
+		card.addEventListener("click", () => loadSelectedRoute(route));
+		routeList.appendChild(card);
+	});
+}
+
+// Load Selected Route
+async function loadSelectedRoute(route) {
+	try {
+		const response = await fetch(`routes/${route.file}`);
+		if (!response.ok) {
+			throw new Error(`HTTP ${response.status}`);
+		}
+
+		const gpxText = await response.text();
+		const points = parseGPX(gpxText);
+
+		if (points.length === 0) {
+			throw new Error("No route points found");
+		}
+
+		state.gpxRoute = points;
+		state.hasReachedStart = false;
+		state.approachRoute = [];
+
+		document.getElementById("file-info").textContent = `✓ ${route.name} loaded`;
+
+		// Get OSRM route with voice instructions
+		console.log("Fetching turn-by-turn instructions from OSRM...");
+		const osrmRoute = await getOSRMRouteWithSteps(state.gpxRoute);
+		if (osrmRoute && osrmRoute.steps) {
+			state.voiceSteps = osrmRoute.steps;
+			state.currentVoiceStepIndex = 0;
+			state.announcedSteps.clear();
+			console.log(`✓ Loaded ${osrmRoute.steps.length} navigation steps`);
+		} else {
+			console.warn("Could not get voice instructions from OSRM");
+			state.voiceSteps = [];
+		}
+
+		setTimeout(() => {
+			startNavigation();
+		}, 200);
+	} catch (error) {
+		console.error(`Error loading route ${route.file}:`, error);
+		alert("Error loading route. Please try another route.");
+	}
 }
 
 // Toggle Preview Route
