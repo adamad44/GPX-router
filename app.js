@@ -1299,7 +1299,12 @@ function processNewPosition(latitude, longitude, accuracy, heading) {
 
 	// Center map on user if auto-center is enabled
 	if (state.autoCenterEnabled) {
-		centerOnLatLngWithOffset([latitude, longitude], state.map.getZoom() || 16);
+		// Use faster centering in compass mode for more responsive tracking
+		const duration = state.rotationMode === "compass" ? 0.15 : 0.5;
+		centerOnLatLngWithOffset([latitude, longitude], state.map.getZoom() || 16, {
+			duration: duration,
+			easeLinearity: 0.5
+		});
 	}
 
 	// Update navigation
@@ -2016,10 +2021,15 @@ function centerOnLatLngWithOffset(latlng, zoom, animationOptions = {}) {
 	);
 	const centerLatLng = map.unproject(offsetPoint, targetZoom);
 
-	map.setView(centerLatLng, targetZoom, {
+	// Default animation settings (can be overridden by animationOptions)
+	const defaultAnimation = {
 		animate: true,
 		duration: 0.5,
 		easeLinearity: 0.2,
+	};
+
+	map.setView(centerLatLng, targetZoom, {
+		...defaultAnimation,
 		...animationOptions,
 	});
 }
