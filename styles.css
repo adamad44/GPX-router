@@ -910,6 +910,9 @@ body {
 	margin: 0 12px 12px 12px;
 	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 	border: 1px solid rgba(255, 255, 255, 0.1);
+	pointer-events: auto;
+	z-index: 1000;
+	position: relative;
 }
 
 .simulation-header {
@@ -946,6 +949,9 @@ body {
 	justify-content: center;
 	min-width: 44px;
 	min-height: 44px;
+	pointer-events: auto;
+	-webkit-user-select: none;
+	user-select: none;
 }
 
 .sim-control-btn:hover {
@@ -958,6 +964,7 @@ body {
 
 .sim-control-btn svg {
 	display: block;
+	pointer-events: none;
 }
 
 .sim-speed-control {
@@ -999,6 +1006,8 @@ body {
 	-webkit-appearance: none;
 	appearance: none;
 	cursor: pointer;
+	pointer-events: auto;
+	touch-action: none;
 }
 
 .simulation-slider::-webkit-slider-thumb {
