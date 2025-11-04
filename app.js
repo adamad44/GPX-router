@@ -2352,29 +2352,27 @@ function enhanceInstruction(maneuver, step) {
 	const name = step.name || "";
 	const exit = maneuver.exit;
 
-	// Special handling for roundabouts
+	// Special handling for roundabouts - SIMPLIFIED
 	if (type === "roundabout" || type === "rotary") {
 		if (exit) {
 			const exitWord =
 				exit === 1
-					? "first"
+					? "1st"
 					: exit === 2
-					? "second"
+					? "2nd"
 					: exit === 3
-					? "third"
+					? "3rd"
 					: exit === 4
-					? "fourth"
+					? "4th"
 					: exit === 5
-					? "fifth"
-					: `exit number ${exit}`;
+					? "5th"
+					: exit === 6
+					? "6th"
+					: `${exit}th`;
 
-			if (name) {
-				return `At the roundabout, take the ${exitWord} exit onto ${name}`;
-			} else {
-				return `At the roundabout, take the ${exitWord} exit`;
-			}
+			return `${exitWord} exit`;
 		} else {
-			return `Enter the roundabout and follow signs${name ? " for " + name : ""}`;
+			return `Take the roundabout`;
 		}
 	}
 
@@ -2385,35 +2383,23 @@ function enhanceInstruction(maneuver, step) {
 			: modifier?.includes("right")
 			? "right"
 			: modifier;
-		if (name) {
-			return `Turn ${direction} onto ${name}`;
-		}
 		return `Turn ${direction}`;
 	}
 
 	// Handle slight turns / bear
 	if (modifier === "slight left" || modifier === "slight right") {
 		const direction = modifier.includes("left") ? "left" : "right";
-		if (name) {
-			return `Bear ${direction} onto ${name}`;
-		}
 		return `Bear ${direction}`;
 	}
 
 	// Handle sharp turns
 	if (modifier === "sharp left" || modifier === "sharp right") {
 		const direction = modifier.includes("left") ? "left" : "right";
-		if (name) {
-			return `Sharp ${direction} onto ${name}`;
-		}
 		return `Sharp ${direction}`;
 	}
 
 	// Continue/straight
 	if (type === "continue" || type === "new name") {
-		if (name) {
-			return `Continue onto ${name}`;
-		}
 		return `Continue straight`;
 	}
 
@@ -2424,10 +2410,7 @@ function enhanceInstruction(maneuver, step) {
 			: modifier?.includes("right")
 			? "right"
 			: "straight";
-		if (name) {
-			return `At the fork, keep ${direction} onto ${name}`;
-		}
-		return `At the fork, keep ${direction}`;
+		return `Keep ${direction}`;
 	}
 
 	// Merge
@@ -2655,8 +2638,30 @@ function checkVoiceGuidance() {
 		return;
 	}
 
-	// If we've passed this step (more than 100m past), move to next
-	if (distance > 100 && closestStepIndex === voiceState.lastAnnouncedStep) {
+	// 5. Check if we've just passed a turn and should announce the NEXT turn immediately
+	// This detects when we're past the current step (behind us) and announces the next one
+	if (closestStepIndex > 0 && state.currentVoiceStepIndex > 0) {
+		const previousStepIndex = closestStepIndex - 1;
+		if (previousStepIndex >= 0 && previousStepIndex < state.voiceSteps.length) {
+			const prevStep = state.voiceSteps[previousStepIndex];
+			const prevLocation = [prevStep.location[1], prevStep.location[0]];
+			const distanceToPrev = calculateDistance(state.userPosition, prevLocation);
+			
+			// If we're 20-80m past the previous turn, announce the next turn immediately
+			const justPassedKey = `${closestStepIndex}-justpassed`;
+			if (distanceToPrev < 80 && distanceToPrev > 20 && 
+			    !state.announcedSteps.has(justPassedKey) &&
+			    distance < 500) { // Only if next turn is within 500m
+				// Check that we're actually past it (behind us)
+				speakNavigation(step.enhancedInstruction, "high");
+				state.announcedSteps.add(justPassedKey);
+				console.log(`✓ Just passed turn, immediately announcing next: ${step.enhancedInstruction}`);
+			}
+		}
+	}
+
+	// If we've passed this step (more than 300m past), move to next
+	if (distance > 300 && closestStepIndex === voiceState.lastAnnouncedStep) {
 		state.currentVoiceStepIndex = closestStepIndex + 1;
 		console.log(`✓ Passed step ${closestStepIndex}, moving to next`);
 	}
