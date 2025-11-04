@@ -33,6 +33,13 @@ const state = {
 	lastVoiceCheckPosition: null,
 	selectedTestCentre: null,
 	currentView: "centre-selection", // 'centre-selection', 'route-selection', 'navigation'
+	// Simulation mode
+	simulationMode: false,
+	simulationPlaying: false,
+	simulationProgress: 0, // 0-100 percentage along route
+	simulationSpeed: 1, // multiplier for simulation speed
+	simulationInterval: null,
+	simulationLastUpdate: null,
 };
 
 // Constants
@@ -166,6 +173,12 @@ function initializeEventListeners() {
 	const togglePreviewButton = document.getElementById("toggle-preview-button");
 	const toggleRotationButton = document.getElementById("toggle-rotation-button");
 	const backButton = document.getElementById("back-button");
+	const toggleSimulationButton = document.getElementById(
+		"toggle-simulation-button"
+	);
+	const simPlayPause = document.getElementById("sim-play-pause");
+	const simSlider = document.getElementById("sim-slider");
+	const simSpeed = document.getElementById("sim-speed");
 
 	fileInput.addEventListener("change", handleFileUpload);
 	centerButton.addEventListener("click", centerMapOnUser);
@@ -175,6 +188,15 @@ function initializeEventListeners() {
 	togglePreviewButton.addEventListener("click", togglePreviewRoute);
 	toggleRotationButton.addEventListener("click", toggleMapRotation);
 	if (backButton) backButton.addEventListener("click", goBackToTestCentres);
+
+	// Simulation controls
+	if (toggleSimulationButton)
+		toggleSimulationButton.addEventListener("click", toggleSimulationMode);
+	if (simPlayPause)
+		simPlayPause.addEventListener("click", toggleSimulationPlayPause);
+	if (simSlider)
+		simSlider.addEventListener("input", handleSimulationSliderChange);
+	if (simSpeed) simSpeed.addEventListener("change", handleSimulationSpeedChange);
 }
 
 // Load Test Centres
@@ -634,11 +656,17 @@ function startNavigation() {
 		initVoiceNavigation();
 	}
 
-	// Show location permission modal
-	showLocationModal();
-
-	state.isNavigating = true;
-	updateStatusText("Waiting for location permission...");
+	// If in simulation mode, start simulation, otherwise request location
+	if (state.simulationMode) {
+		state.isNavigating = true;
+		updateStatusText("Simulation Mode - Use slider to move along route");
+		updateSimulationPosition(state.simulationProgress);
+	} else {
+		// Show location permission modal for real GPS
+		showLocationModal();
+		state.isNavigating = true;
+		updateStatusText("Waiting for location permission...");
+	}
 }
 
 // Show Location Permission Modal
@@ -1656,6 +1684,19 @@ function resetApp() {
 		state.watchId = null;
 	}
 
+	// Stop simulation
+	if (state.simulationMode) {
+		stopSimulationPlayback();
+		state.simulationMode = false;
+		state.simulationPlaying = false;
+		state.simulationProgress = 0;
+
+		const simButton = document.getElementById("toggle-simulation-button");
+		const simControls = document.getElementById("simulation-controls");
+		if (simButton) simButton.classList.remove("active");
+		if (simControls) simControls.classList.add("hidden");
+	}
+
 	// Stop device orientation listener and reset rotation
 	disableDeviceCompass();
 	if (state.map) {
@@ -1916,4 +1957,245 @@ function checkVoiceGuidance() {
 			state.announcedSteps.add("arrival");
 		}
 	}
+}
+
+// ============================================================================
+// SIMULATION MODE FUNCTIONS
+// ============================================================================
+
+// Toggle Simulation Mode
+function toggleSimulationMode() {
+	if (!state.gpxRoute || state.gpxRoute.length === 0) {
+		alert("Please load a route first!");
+		return;
+	}
+
+	state.simulationMode = !state.simulationMode;
+
+	const button = document.getElementById("toggle-simulation-button");
+	const simulationControls = document.getElementById("simulation-controls");
+
+	if (state.simulationMode) {
+		// Enable simulation mode
+		button.classList.add("active");
+		simulationControls.classList.remove("hidden");
+
+		// Stop real GPS tracking
+		if (state.watchId) {
+			navigator.geolocation.clearWatch(state.watchId);
+			state.watchId = null;
+		}
+
+		// Initialize simulation at the start of the route
+		state.simulationProgress = 0;
+		updateSimulationPosition(0);
+		updateSimulationUI();
+
+		updateStatusText("Simulation Mode Active");
+	} else {
+		// Disable simulation mode
+		button.classList.remove("active");
+		simulationControls.classList.add("hidden");
+		stopSimulationPlayback();
+
+		// Resume real GPS tracking if navigation is active
+		if (state.isNavigating) {
+			startGPSTracking();
+		}
+
+		updateStatusText("GPS Mode Active");
+	}
+}
+
+// Toggle Simulation Playback
+function toggleSimulationPlayPause() {
+	if (!state.simulationMode) return;
+
+	state.simulationPlaying = !state.simulationPlaying;
+
+	const playIcon = document.querySelector("#sim-play-pause .play-icon");
+	const pauseIcon = document.querySelector("#sim-play-pause .pause-icon");
+
+	if (state.simulationPlaying) {
+		playIcon.classList.add("hidden");
+		pauseIcon.classList.remove("hidden");
+		startSimulationPlayback();
+	} else {
+		playIcon.classList.remove("hidden");
+		pauseIcon.classList.add("hidden");
+		stopSimulationPlayback();
+	}
+}
+
+// Start Simulation Playback
+function startSimulationPlayback() {
+	if (state.simulationInterval) {
+		clearInterval(state.simulationInterval);
+	}
+
+	state.simulationLastUpdate = Date.now();
+
+	// Update simulation at 60 fps for smooth movement
+	state.simulationInterval = setInterval(() => {
+		const now = Date.now();
+		const deltaTime = (now - state.simulationLastUpdate) / 1000; // seconds
+		state.simulationLastUpdate = now;
+
+		// Calculate progress increment based on speed
+		// Assume average driving speed of 30 mph = 13.4 m/s
+		const baseSpeed = 13.4; // meters per second
+		const totalRouteDistance = calculateTotalRouteDistance();
+
+		if (totalRouteDistance > 0) {
+			const progressPerSecond = (baseSpeed / totalRouteDistance) * 100;
+			const increment = progressPerSecond * deltaTime * state.simulationSpeed;
+
+			state.simulationProgress = Math.min(
+				100,
+				state.simulationProgress + increment
+			);
+
+			updateSimulationPosition(state.simulationProgress);
+			updateSimulationUI();
+
+			// Stop when we reach the end
+			if (state.simulationProgress >= 100) {
+				state.simulationProgress = 100;
+				toggleSimulationPlayPause();
+			}
+		}
+	}, 1000 / 60); // 60 fps
+}
+
+// Stop Simulation Playback
+function stopSimulationPlayback() {
+	if (state.simulationInterval) {
+		clearInterval(state.simulationInterval);
+		state.simulationInterval = null;
+	}
+}
+
+// Handle Simulation Slider Change
+function handleSimulationSliderChange(event) {
+	if (!state.simulationMode) return;
+
+	const progress = parseFloat(event.target.value);
+	state.simulationProgress = progress;
+
+	updateSimulationPosition(progress);
+	updateSimulationUI();
+}
+
+// Handle Simulation Speed Change
+function handleSimulationSpeedChange(event) {
+	state.simulationSpeed = parseFloat(event.target.value);
+}
+
+// Update Simulation Position
+function updateSimulationPosition(progressPercent) {
+	if (!state.gpxRoute || state.gpxRoute.length === 0) return;
+
+	// Calculate the actual point along the route based on distance
+	const totalDistance = calculateTotalRouteDistance();
+	const targetDistance = (progressPercent / 100) * totalDistance;
+
+	// Find the point at the target distance
+	let accumulatedDistance = 0;
+	let previousPoint = state.gpxRoute[0];
+	let currentIndex = 0;
+
+	for (let i = 1; i < state.gpxRoute.length; i++) {
+		const segmentDistance = calculateDistance(previousPoint, state.gpxRoute[i]);
+
+		if (accumulatedDistance + segmentDistance >= targetDistance) {
+			// Interpolate between previous and current point
+			const remainingDistance = targetDistance - accumulatedDistance;
+			const ratio = remainingDistance / segmentDistance;
+
+			const lat =
+				previousPoint[0] + (state.gpxRoute[i][0] - previousPoint[0]) * ratio;
+			const lng =
+				previousPoint[1] + (state.gpxRoute[i][1] - previousPoint[1]) * ratio;
+
+			state.userPosition = [lat, lng];
+			currentIndex = i;
+
+			// Calculate heading from direction of travel
+			const heading = calculateBearing(previousPoint, state.gpxRoute[i]);
+			state.gpsHeading = heading;
+			state.currentHeading = heading;
+
+			// Store last position for heading calculation
+			state.lastPosition = [lat, lng];
+
+			break;
+		}
+
+		accumulatedDistance += segmentDistance;
+		previousPoint = state.gpxRoute[i];
+	}
+
+	// If we're at the end, use the last point
+	if (progressPercent >= 100 || currentIndex === 0) {
+		state.userPosition = state.gpxRoute[state.gpxRoute.length - 1];
+	}
+
+	// Update or create user marker with simulated accuracy
+	const simulatedAccuracy = 10; // 10 meters accuracy
+	updateUserMarker(
+		state.userPosition[0],
+		state.userPosition[1],
+		simulatedAccuracy
+	);
+
+	// Rotate map if rotation mode is enabled
+	if (state.rotationMode !== "off") {
+		applyMapRotation();
+	}
+
+	// Center map on user if auto-center is enabled
+	if (state.autoCenterEnabled) {
+		centerOnLatLngWithOffset(state.userPosition, state.map.getZoom() || 17);
+	}
+
+	// Update navigation
+	updateNavigation();
+
+	// Check voice guidance
+	checkVoiceGuidance();
+}
+
+// Update Simulation UI
+function updateSimulationUI() {
+	const slider = document.getElementById("sim-slider");
+	const progressText = document.getElementById("sim-progress-text");
+	const distanceText = document.getElementById("sim-distance-text");
+
+	if (slider) {
+		slider.value = state.simulationProgress;
+	}
+
+	if (progressText) {
+		progressText.textContent = `${state.simulationProgress.toFixed(1)}%`;
+	}
+
+	if (distanceText) {
+		const totalDistance = calculateTotalRouteDistance();
+		const currentDistance = (state.simulationProgress / 100) * totalDistance;
+		distanceText.textContent = `${(currentDistance / 1000).toFixed(2)} km / ${(
+			totalDistance / 1000
+		).toFixed(2)} km`;
+	}
+}
+
+// Calculate Total Route Distance
+function calculateTotalRouteDistance() {
+	if (!state.gpxRoute || state.gpxRoute.length < 2) return 0;
+
+	let totalDistance = 0;
+	for (let i = 1; i < state.gpxRoute.length; i++) {
+		totalDistance += calculateDistance(state.gpxRoute[i - 1], state.gpxRoute[i]);
+	}
+
+	return totalDistance;
 }

@@ -134,7 +134,92 @@
 						<div id="status-text">Waiting for GPS...</div>
 						<div id="distance-info"></div>
 					</div>
+
+					<!-- Simulation Controls -->
+					<div id="simulation-controls" class="simulation-controls hidden">
+						<div class="simulation-header">
+							<span class="simulation-mode-label">
+								<svg
+									width="14"
+									height="14"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+								>
+									<circle cx="12" cy="12" r="10"></circle>
+									<polyline points="12 6 12 12 16 14"></polyline>
+								</svg>
+								Simulation Mode
+							</span>
+							<button id="sim-play-pause" class="sim-control-btn" title="Play/Pause">
+								<svg
+									class="play-icon"
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="currentColor"
+								>
+									<polygon points="5 3 19 12 5 21 5 3"></polygon>
+								</svg>
+								<svg
+									class="pause-icon hidden"
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="currentColor"
+								>
+									<rect x="6" y="4" width="4" height="16"></rect>
+									<rect x="14" y="4" width="4" height="16"></rect>
+								</svg>
+							</button>
+							<div class="sim-speed-control">
+								<label for="sim-speed">Speed:</label>
+								<select id="sim-speed" class="sim-speed-select">
+									<option value="0.5">0.5x</option>
+									<option value="1" selected>1x</option>
+									<option value="2">2x</option>
+									<option value="5">5x</option>
+									<option value="10">10x</option>
+								</select>
+							</div>
+						</div>
+						<div class="simulation-slider-container">
+							<input
+								type="range"
+								id="sim-slider"
+								class="simulation-slider"
+								min="0"
+								max="100"
+								value="0"
+								step="0.1"
+							/>
+							<div class="simulation-progress-info">
+								<span id="sim-progress-text">0%</span>
+								<span id="sim-distance-text">0.0 km</span>
+							</div>
+						</div>
+					</div>
+
 					<div class="control-buttons-container">
+						<button
+							id="toggle-simulation-button"
+							class="control-button with-label"
+							title="Toggle simulation mode for testing"
+						>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
+								<circle cx="12" cy="12" r="10"></circle>
+								<polyline points="12 6 12 12 16 14"></polyline>
+							</svg>
+							<span class="button-label">Simulate</span>
+						</button>
 						<button
 							id="toggle-preview-button"
 							class="control-button with-label"
