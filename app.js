@@ -40,6 +40,7 @@ const state = {
 	simulationSpeed: 1, // multiplier for simulation speed
 	simulationInterval: null,
 	simulationLastUpdate: null,
+	simulationActive: false, // true when slider moved or playing (overriding GPS)
 };
 
 // Constants
@@ -869,11 +870,8 @@ function startGPSTracking() {
 
 // Handle Position Update
 function handlePositionUpdate(position) {
-	// If simulation mode is active, ignore GPS updates (simulation controls position)
-	if (
-		state.simulationMode &&
-		(state.simulationPlaying || state.simulationProgress > 0)
-	) {
+	// If simulation is ACTIVELY being used (playing or slider moved), ignore GPS
+	if (state.simulationMode && state.simulationActive) {
 		// Still store GPS data for when we exit simulation mode
 		const { latitude, longitude } = position.coords;
 		state.lastPosition = [latitude, longitude];
@@ -1722,6 +1720,7 @@ function resetApp() {
 		state.simulationMode = false;
 		state.simulationPlaying = false;
 		state.simulationProgress = 0;
+		state.simulationActive = false;
 
 		const simButton = document.getElementById("toggle-simulation-button");
 		const simControls = document.getElementById("simulation-controls");
@@ -1996,7 +1995,6 @@ function checkVoiceGuidance() {
 // ============================================================================
 
 // Toggle Simulation Mode
-// Toggle Simulation Mode
 function toggleSimulationMode() {
 	if (!state.gpxRoute || state.gpxRoute.length === 0) {
 		alert("Please load a route first!");
@@ -2009,39 +2007,30 @@ function toggleSimulationMode() {
 	const simulationControls = document.getElementById("simulation-controls");
 
 	if (state.simulationMode) {
-		// Enable simulation mode - keeps GPS but allows manual override
+		// Enable simulation mode - GPS continues running, slider lets you override
 		button.classList.add("active");
 		simulationControls.classList.remove("hidden");
 
-		// If we have a current position, calculate where we are on the route
-		if (state.userPosition) {
-			// Find nearest point on route to current GPS position
-			const nearest = findNearestPointOnRoute(state.userPosition, state.gpxRoute);
-			const totalDistance = calculateTotalRouteDistance();
-
-			// Calculate progress based on distance to nearest point
-			let accumulatedDistance = 0;
-			for (let i = 1; i <= nearest.index; i++) {
-				accumulatedDistance += calculateDistance(
-					state.gpxRoute[i - 1],
-					state.gpxRoute[i]
-				);
-			}
-
-			// Set slider to current position on route
-			state.simulationProgress = (accumulatedDistance / totalDistance) * 100;
-		} else {
-			// If no GPS yet, start at beginning of route
-			state.simulationProgress = 0;
-		}
+		// Initialize slider at 0 (start of route) but DON'T activate simulation yet
+		// User's real GPS position continues to show until they interact with slider/play
+		state.simulationProgress = 0;
+		state.simulationPlaying = false;
+		state.simulationActive = false; // Not active until user interacts
 
 		updateSimulationUI();
-		updateStatusText("Simulation Mode - Use slider or play to move along route");
+		updateStatusText(
+			"Simulation Mode Ready - GPS still active. Use slider/play to simulate."
+		);
 	} else {
 		// Disable simulation mode - return to normal GPS
 		button.classList.remove("active");
 		simulationControls.classList.add("hidden");
 		stopSimulationPlayback();
+
+		// Reset simulation state
+		state.simulationPlaying = false;
+		state.simulationProgress = 0;
+		state.simulationActive = false;
 
 		// GPS tracking continues normally (it was never stopped)
 		updateStatusText("GPS Mode Active");
@@ -2069,11 +2058,13 @@ function toggleSimulationPlayPause() {
 	if (state.simulationPlaying) {
 		playIcon.classList.add("hidden");
 		pauseIcon.classList.remove("hidden");
+		state.simulationActive = true; // Mark simulation as active
 		startSimulationPlayback();
 	} else {
 		playIcon.classList.remove("hidden");
 		pauseIcon.classList.add("hidden");
 		stopSimulationPlayback();
+		// Keep simulation active until they turn off simulation mode completely
 	}
 }
 
@@ -2136,6 +2127,7 @@ function handleSimulationSliderChange(event) {
 
 	const progress = parseFloat(event.target.value);
 	state.simulationProgress = progress;
+	state.simulationActive = true; // Mark simulation as actively overriding GPS
 
 	console.log("Setting simulation progress to:", progress);
 	updateSimulationPosition(progress);
