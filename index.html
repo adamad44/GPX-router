@@ -209,6 +209,49 @@
 						</button>
 					</div>
 				</div>
+
+				<!-- Simulation Controls -->
+				<div id="simulation-controls" class="hidden">
+					<button id="toggle-simulation-button" class="control-button">
+						<svg
+							id="simulation-icon-play"
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
+							<polygon points="5 3 19 12 5 21 5 3"></polygon>
+						</svg>
+						<svg
+							id="simulation-icon-pause"
+							class="hidden"
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
+							<rect x="6" y="4" width="4" height="16"></rect>
+							<rect x="14" y="4" width="4" height="16"></rect>
+						</svg>
+					</button>
+					<div class="slider-container">
+						<label for="speed-slider"
+							>Speed: <span id="speed-value">0</span> km/h</label
+						>
+						<input
+							type="range"
+							id="speed-slider"
+							min="0"
+							max="120"
+							value="0"
+							step="1"
+						/>
+					</div>
+				</div>
 			</div>
 		</div>
 

@@ -33,6 +33,13 @@ const state = {
 	lastVoiceCheckPosition: null,
 	selectedTestCentre: null,
 	currentView: "centre-selection", // 'centre-selection', 'route-selection', 'navigation'
+	// Simulation State
+	isSimulating: false,
+	simulationSpeed: 0, // in km/h
+	simulationInterval: null,
+	simulatedPosition: null,
+	currentSimulatedSegmentIndex: 0,
+	distanceIntoSegment: 0, // in meters
 };
 
 // Constants
@@ -167,15 +174,186 @@ function initializeEventListeners() {
 	const toggleRotationButton = document.getElementById("toggle-rotation-button");
 	const backButton = document.getElementById("back-button");
 
+	// Simulation controls
+	const speedSlider = document.getElementById("speed-slider");
+	const speedValue = document.getElementById("speed-value");
+	const toggleSimulationButton = document.getElementById(
+		"toggle-simulation-button"
+	);
+	let longPressTimer;
+
 	fileInput.addEventListener("change", handleFileUpload);
+
+	// Use a long press on the center button to toggle simulation controls
+	centerButton.addEventListener("mousedown", () => {
+		longPressTimer = setTimeout(toggleSimulationControls, 800); // 800ms for long press
+	});
+	centerButton.addEventListener("mouseup", () => clearTimeout(longPressTimer));
+	centerButton.addEventListener("mouseleave", () =>
+		clearTimeout(longPressTimer)
+	);
+	centerButton.addEventListener("touchstart", () => {
+		longPressTimer = setTimeout(toggleSimulationControls, 800);
+	});
+	centerButton.addEventListener("touchend", () => clearTimeout(longPressTimer));
 	centerButton.addEventListener("click", centerMapOnUser);
+
 	resetButton.addEventListener("click", resetApp);
 	enableLocationBtn.addEventListener("click", requestLocationPermission);
 	cancelLocationBtn.addEventListener("click", closeLocationModal);
 	togglePreviewButton.addEventListener("click", togglePreviewRoute);
 	toggleRotationButton.addEventListener("click", toggleMapRotation);
 	if (backButton) backButton.addEventListener("click", goBackToTestCentres);
+
+	// Simulation listeners
+	if (speedSlider) {
+		speedSlider.addEventListener("input", (e) => {
+			const speed = parseInt(e.target.value, 10);
+			state.simulationSpeed = speed;
+			if (speedValue) speedValue.textContent = speed;
+			// If simulation is running, restart it to apply new speed
+			if (state.isSimulating) {
+				startSimulation();
+			}
+		});
+	}
+
+	if (toggleSimulationButton) {
+		toggleSimulationButton.addEventListener("click", () => {
+			if (state.isSimulating) {
+				pauseSimulation();
+			} else {
+				startSimulation();
+			}
+		});
+	}
 }
+
+// --- Simulation Functions ---
+
+// Toggle visibility of simulation controls
+function toggleSimulationControls() {
+	if (!state.isNavigating) return; // Only show during navigation
+	state.simulationMode = !state.simulationMode;
+	const simControls = document.getElementById("simulation-controls");
+	if (state.simulationMode) {
+		simControls.classList.remove("hidden");
+		// If there's no real GPS, start simulation from the beginning of the route
+		if (!state.userPosition && state.gpxRoute.length > 0) {
+			state.simulatedPosition = state.gpxRoute[0];
+			state.currentSimulatedSegmentIndex = 0;
+			state.distanceIntoSegment = 0;
+			// Fake a position update to place the marker at the start
+			processNewPosition(state.simulatedPosition[0], state.simulatedPosition[1]);
+		}
+	} else {
+		simControls.classList.add("hidden");
+		pauseSimulation(); // Stop simulation when hiding controls
+	}
+}
+
+// Start or resume the simulation
+function startSimulation() {
+	if (!state.simulationMode || state.simulationSpeed === 0) {
+		pauseSimulation();
+		return;
+	}
+
+	// If simulation is already running, clear the old interval
+	if (state.simulationInterval) {
+		clearInterval(state.simulationInterval);
+	}
+
+	state.isSimulating = true;
+	updateSimulationButton(true);
+
+	// If starting from scratch, initialize position
+	if (!state.simulatedPosition && state.gpxRoute.length > 0) {
+		state.simulatedPosition = state.gpxRoute[0];
+		state.currentSimulatedSegmentIndex = 0;
+		state.distanceIntoSegment = 0;
+	}
+
+	// Use the simulated position as the user position
+	state.userPosition = state.simulatedPosition;
+
+	// Start the simulation loop
+	state.simulationInterval = setInterval(updateSimulation, 1000); // Update every second
+}
+
+// Pause the simulation
+function pauseSimulation() {
+	if (state.simulationInterval) {
+		clearInterval(state.simulationInterval);
+		state.simulationInterval = null;
+	}
+	state.isSimulating = false;
+	updateSimulationButton(false);
+}
+
+// The main simulation loop
+function updateSimulation() {
+	if (!state.isSimulating || !state.gpxRoute || state.gpxRoute.length < 2) {
+		return;
+	}
+
+	const speedMetersPerSecond = (state.simulationSpeed * 1000) / 3600;
+	let distanceToTravel = speedMetersPerSecond; // Travel for 1 second
+
+	while (distanceToTravel > 0) {
+		const startPoint = state.gpxRoute[state.currentSimulatedSegmentIndex];
+		const endPoint = state.gpxRoute[state.currentSimulatedSegmentIndex + 1];
+
+		if (!startPoint || !endPoint) {
+			pauseSimulation(); // Reached end of the route
+			console.log("Simulation finished: End of route.");
+			return;
+		}
+
+		const segmentLength = calculateDistance(startPoint, endPoint);
+		const remainingDistanceInSegment = segmentLength - state.distanceIntoSegment;
+
+		if (distanceToTravel >= remainingDistanceInSegment) {
+			// Move to the next segment
+			distanceToTravel -= remainingDistanceInSegment;
+			state.distanceIntoSegment = 0;
+			state.currentSimulatedSegmentIndex++;
+			state.simulatedPosition = endPoint;
+		} else {
+			// Move along the current segment
+			state.distanceIntoSegment += distanceToTravel;
+			const fraction = state.distanceIntoSegment / segmentLength;
+			state.simulatedPosition = interpolate(startPoint, endPoint, fraction);
+			distanceToTravel = 0;
+		}
+	}
+
+	// Update the map with the new simulated position
+	processNewPosition(
+		state.simulatedPosition[0],
+		state.simulatedPosition[1],
+		10 // Fake accuracy
+	);
+}
+
+// Update play/pause button icon
+function updateSimulationButton(isPlaying) {
+	const playIcon = document.getElementById("simulation-icon-play");
+	const pauseIcon = document.getElementById("simulation-icon-pause");
+	if (playIcon && pauseIcon) {
+		playIcon.classList.toggle("hidden", isPlaying);
+		pauseIcon.classList.toggle("hidden", !isPlaying);
+	}
+}
+
+// Interpolate between two coordinates
+function interpolate(p1, p2, fraction) {
+	const lat = p1[0] + (p2[0] - p1[0]) * fraction;
+	const lon = p1[1] + (p2[1] - p1[1]) * fraction;
+	return [lat, lon];
+}
+
+// --- End Simulation Functions ---
 
 // Load Test Centres
 function loadTestCentres() {
@@ -634,8 +812,16 @@ function startNavigation() {
 		initVoiceNavigation();
 	}
 
-	// Show location permission modal
-	showLocationModal();
+	// Show location permission modal or simulation controls
+	if (state.simulationMode) {
+		document.getElementById("simulation-controls").classList.remove("hidden");
+		if (!state.userPosition && state.gpxRoute.length > 0) {
+			state.simulatedPosition = state.gpxRoute[0];
+			processNewPosition(state.simulatedPosition[0], state.simulatedPosition[1]);
+		}
+	} else {
+		showLocationModal();
+	}
 
 	state.isNavigating = true;
 	updateStatusText("Waiting for location permission...");
@@ -821,6 +1007,16 @@ function startGPSTracking() {
 // Handle Position Update
 function handlePositionUpdate(position) {
 	const { latitude, longitude, accuracy, heading } = position.coords;
+	// If simulation is active, ignore real GPS updates
+	if (state.isSimulating) {
+		console.log("Simulation is active, ignoring real GPS update.");
+		return;
+	}
+	processNewPosition(latitude, longitude, accuracy, heading);
+}
+
+// Process a new position (real or simulated)
+function processNewPosition(latitude, longitude, accuracy, heading) {
 	state.userPosition = [latitude, longitude];
 
 	// Calculate heading if not provided by GPS or if we have movement
