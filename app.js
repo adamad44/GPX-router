@@ -22,6 +22,7 @@ const state = {
 	presetRoutes: {},
 	rotationMode: "route", // 'off', 'route' (direction of travel is up), 'compass' (device heading is up)
 	currentHeading: 0,
+	smoothedHeading: null, // For smoothing map rotation
 	lastPosition: null,
 	orientationListenerActive: false,
 	deviceHeading: null,
@@ -1161,151 +1162,116 @@ function onDeviceOrientation(event) {
 // Apply map rotation from best available source: device heading, GPS bearing, or route bearing
 function applyMapRotation() {
 	if (!state.map) return;
-	if (state.rotationMode === "off") return;
+	if (state.rotationMode === "off") {
+		// If rotation is turned off, reset smoothed heading
+		state.smoothedHeading = null;
+		return;
+	}
 
 	let heading = null;
 
 	// Compass mode: prioritize device orientation
 	if (state.rotationMode === "compass") {
-		// 1) Device orientation heading (most responsive)
 		if (typeof state.deviceHeading === "number" && !isNaN(state.deviceHeading)) {
 			heading = state.deviceHeading;
-		}
-
-		// Fallback to GPS heading if compass unavailable
-		if (
-			heading === null &&
-			typeof state.gpsHeading === "number" &&
-			!isNaN(state.gpsHeading)
-		) {
+		} else if (typeof state.gpsHeading === "number" && !isNaN(state.gpsHeading)) {
 			heading = state.gpsHeading;
 		}
 	}
 
-	// Route mode: use the direction of the ACTIVE navigation route (the blue line)
+	// Route mode: use the direction of the ACTIVE navigation route
 	if (state.rotationMode === "route" && state.userPosition) {
 		let activeRoute = null;
-
-		// Determine which route is currently being followed
 		if (
 			!state.hasReachedStart &&
 			state.approachRoute &&
 			state.approachRoute.length > 1
 		) {
-			// Still approaching the start - use the OSRM approach route (blue line to start)
 			activeRoute = state.approachRoute;
-			console.log("Route mode: Using approach route (navigating to start)");
 		} else if (state.gpxRoute && state.gpxRoute.length > 1) {
-			// Following the GPX route
 			activeRoute = state.gpxRoute;
-			console.log("Route mode: Using GPX route (following track)");
 		}
 
-		// Calculate bearing from the active navigation route
-		if (activeRoute && activeRoute.length > 1) {
+		if (activeRoute) {
 			const progress = findNearestPointOnRoute(state.userPosition, activeRoute);
-			const startIdx = Math.max(progress.index, 0);
-
-			// Look ahead until we have at least 50 meters of route to get stable bearing
-			const MIN_LOOK_AHEAD_DISTANCE = 50; // meters
-			let lookIdx = startIdx + 1;
-			let accumulatedDistance = 0;
-
-			// Accumulate distance along route until we reach minimum
-			while (
-				lookIdx < activeRoute.length &&
-				accumulatedDistance < MIN_LOOK_AHEAD_DISTANCE
-			) {
-				accumulatedDistance += calculateDistance(
-					activeRoute[lookIdx - 1],
-					activeRoute[lookIdx]
-				);
-				lookIdx++;
-			}
-
-			// Use the furthest point we found (or end of route if we ran out)
-			lookIdx = Math.min(lookIdx - 1, activeRoute.length - 1);
-
-			// Only calculate bearing if we found a point far enough ahead
-			if (lookIdx > startIdx) {
-				heading = calculateBearing(activeRoute[startIdx], activeRoute[lookIdx]);
-				console.log(
-					`Route mode: Bearing to navigation destination (${Math.round(
-						accumulatedDistance
-					)}m ahead):`,
-					heading
-				);
+			const lookAheadPoint = getPointAhead(
+				activeRoute,
+				progress.index,
+				50 // Look 50 meters ahead for a stable bearing
+			);
+			if (lookAheadPoint) {
+				heading = calculateBearing(state.userPosition, lookAheadPoint);
 			}
 		}
 
-		// If no route, fallback to GPS heading (direction of travel)
 		if (
 			heading === null &&
 			typeof state.gpsHeading === "number" &&
 			!isNaN(state.gpsHeading)
 		) {
 			heading = state.gpsHeading;
-			console.log("Route mode: Fallback to GPS heading:", heading);
 		}
 	}
 
 	if (heading === null || isNaN(heading)) {
-		console.log("No valid heading available");
 		return;
 	}
 
-	state.currentHeading = heading;
+	// Initialize smoothed heading if it's the first time
+	if (state.smoothedHeading === null) {
+		state.smoothedHeading = heading;
+	}
 
-	console.log("Applying rotation:", heading); // Debug log
-	// Rotate map so that heading points up (rotate map opposite direction)
-	setMapBearing(-heading);
-} // Set map bearing using plugin if available, else basic CSS transform fallback
+	// Apply smoothing to the heading
+	state.smoothedHeading = smoothHeading(state.smoothedHeading, heading, 0.1); // Adjust the factor for more/less smoothing
+
+	state.currentHeading = state.smoothedHeading;
+
+	// Rotate map so that heading points up
+	setMapBearing(-state.currentHeading);
+}
+
+// Helper function to get a point a certain distance ahead on the route
+function getPointAhead(route, startIndex, distanceAhead) {
+	let accumulatedDistance = 0;
+	for (let i = startIndex; i < route.length - 1; i++) {
+		const segmentDistance = calculateDistance(route[i], route[i + 1]);
+		if (accumulatedDistance + segmentDistance >= distanceAhead) {
+			const fraction = (distanceAhead - accumulatedDistance) / segmentDistance;
+			return interpolate(route[i], route[i + 1], fraction);
+		}
+		accumulatedDistance += segmentDistance;
+	}
+	return route[route.length - 1]; // Return last point if not found
+}
+
+// Helper function for smoothing heading changes
+function smoothHeading(current, target, factor) {
+	// Handle the wrap-around from 359 to 0 degrees and vice-versa
+	let diff = target - current;
+	if (diff > 180) diff -= 360;
+	if (diff < -180) diff += 360;
+
+	const newHeading = current + diff * factor;
+	return (newHeading + 360) % 360; // Normalize to 0-360
+}
+
+// Set map bearing using plugin if available, else basic CSS transform fallback
 function setMapBearing(angleDeg) {
 	if (!state.map) return;
 
-	console.log("setMapBearing called with:", angleDeg); // Debug log
+	const rotationOptions = {
+		animate: true,
+		duration: 0.5, // Smooth transition over 0.5 seconds
+		easeLinearity: 0.5,
+	};
 
-	// Center the map on user position with offset before rotating
-	if (state.userPosition && state.rotationMode === "compass") {
-		// Use centerOnLatLngWithOffset to position GPS at bottom of screen
-		const mapSize = state.map.getSize();
-		const offsetY = mapSize.y * USER_VIEW_OFFSET_RATIO;
-
-		// Project the GPS position to pixel coordinates
-		const projected = state.map.project(state.userPosition, state.map.getZoom());
-
-		// Keep the original X coordinate but offset the Y coordinate
-		const offsetPoint = L.point(projected.x, projected.y - offsetY);
-		const centerLatLng = state.map.unproject(offsetPoint, state.map.getZoom());
-
-		// Center map on offset position without animation before rotating
-		state.map.setView(centerLatLng, state.map.getZoom(), {
-			animate: false,
-			duration: 0,
-		});
-	}
-
-	// Use the Leaflet-rotate plugin methods if available
-	if (typeof state.map.setBearing === "function") {
-		console.log("Using setBearing"); // Debug log
-		state.map.setBearing(angleDeg);
-		return;
-	}
-
-	// Alternative rotate method
-	if (typeof state.map.rotateTo === "function") {
-		console.log("Using rotateTo"); // Debug log
-		state.map.rotateTo(angleDeg);
-		return;
-	}
-
-	console.log("Using CSS fallback"); // Debug log
-	// Fallback: rotate the map pane (controls inside map will rotate too)
-	const pane = state.map.getPane && state.map.getPane("mapPane");
-	if (pane) {
-		pane.style.transformOrigin = "50% 50%";
-		pane.style.transition = "transform 0.2s ease-out";
-		pane.style.transform = `rotate(${angleDeg}deg)`;
+	// In compass mode, rotate around the user's location (the anchor point)
+	if (state.rotationMode === "compass" && state.userPosition) {
+		const anchor = state.map.latLngToContainerPoint(state.userPosition);
+		state.map.setBearing(angleDeg, { ...rotationOptions, anchor });
+	} else {
+		state.map.setBearing(angleDeg, rotationOptions);
 	}
 }
 
@@ -2036,27 +2002,44 @@ async function getOSRMRouteWithSteps(routePoints) {
 
 // Speak text using Web Speech API
 function speak(text) {
-	if (!window.speechSynthesis) {
-		console.warn("Speech synthesis not supported");
+	if (!window.speechSynthesis || !state.voiceEnabled) {
+		console.warn("Speech synthesis not supported or voice not enabled");
 		return;
 	}
 
-	// Cancel any ongoing speech
+	// Cancel any ongoing speech to prevent overlap
 	window.speechSynthesis.cancel();
 
 	const utterance = new SpeechSynthesisUtterance(text);
-	utterance.rate = 0.9; // Slightly slower for clarity
+	utterance.rate = 1.1; // Slightly faster, more natural pace
 	utterance.pitch = 1.0;
 	utterance.volume = 1.0;
 
-	// Use English voice
+	// Try to find a preferred voice
 	const voices = window.speechSynthesis.getVoices();
-	const englishVoice = voices.find((voice) => voice.lang.startsWith("en"));
-	if (englishVoice) {
-		utterance.voice = englishVoice;
+	let preferredVoice = voices.find(
+		(voice) => voice.name === "Google UK English Female"
+	);
+	if (!preferredVoice) {
+		preferredVoice = voices.find(
+			(voice) => voice.lang.startsWith("en-GB") && voice.localService
+		);
+	}
+	if (!preferredVoice) {
+		preferredVoice = voices.find((voice) => voice.lang.startsWith("en-US"));
+	}
+	if (preferredVoice) {
+		utterance.voice = preferredVoice;
 	}
 
-	window.speechSynthesis.speak(utterance);
+	// On some mobile browsers, speech needs to be triggered in a user gesture.
+	// This is a workaround to "unlock" speech synthesis.
+	const promise = window.speechSynthesis.speak(utterance);
+	if (promise !== undefined) {
+		promise.catch((error) => {
+			console.error("Speech synthesis failed:", error);
+		});
+	}
 	console.log("🔊 Voice:", text);
 }
 
