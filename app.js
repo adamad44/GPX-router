@@ -1161,10 +1161,7 @@ function onDeviceOrientation(event) {
 
 // Apply map rotation from best available source: device heading, GPS bearing, or route bearing
 function applyMapRotation() {
-	if (!state.map) return;
-	if (state.rotationMode === "off") {
-		// If rotation is turned off, reset smoothed heading
-		state.smoothedHeading = null;
+	if (!state.map || state.rotationMode === "off") {
 		return;
 	}
 
@@ -1194,16 +1191,20 @@ function applyMapRotation() {
 
 		if (activeRoute) {
 			const progress = findNearestPointOnRoute(state.userPosition, activeRoute);
+			// Look 30-50 meters ahead for a stable bearing, depending on speed
+			const lookAheadDistance = Math.max(30, state.simulationSpeed / 3.6); // Simple speed-based lookahead
 			const lookAheadPoint = getPointAhead(
 				activeRoute,
 				progress.index,
-				50 // Look 50 meters ahead for a stable bearing
+				lookAheadDistance
 			);
+
 			if (lookAheadPoint) {
 				heading = calculateBearing(state.userPosition, lookAheadPoint);
 			}
 		}
 
+		// Fallback to GPS heading if route-based heading fails
 		if (
 			heading === null &&
 			typeof state.gpsHeading === "number" &&
@@ -1217,15 +1218,7 @@ function applyMapRotation() {
 		return;
 	}
 
-	// Initialize smoothed heading if it's the first time
-	if (state.smoothedHeading === null) {
-		state.smoothedHeading = heading;
-	}
-
-	// Apply smoothing to the heading
-	state.smoothedHeading = smoothHeading(state.smoothedHeading, heading, 0.1); // Adjust the factor for more/less smoothing
-
-	state.currentHeading = state.smoothedHeading;
+	state.currentHeading = heading;
 
 	// Rotate map so that heading points up
 	setMapBearing(-state.currentHeading);
@@ -1245,25 +1238,14 @@ function getPointAhead(route, startIndex, distanceAhead) {
 	return route[route.length - 1]; // Return last point if not found
 }
 
-// Helper function for smoothing heading changes
-function smoothHeading(current, target, factor) {
-	// Handle the wrap-around from 359 to 0 degrees and vice-versa
-	let diff = target - current;
-	if (diff > 180) diff -= 360;
-	if (diff < -180) diff += 360;
-
-	const newHeading = current + diff * factor;
-	return (newHeading + 360) % 360; // Normalize to 0-360
-}
-
-// Set map bearing using plugin if available, else basic CSS transform fallback
+// Set map bearing using plugin if available
 function setMapBearing(angleDeg) {
 	if (!state.map) return;
 
 	const rotationOptions = {
 		animate: true,
-		duration: 0.5, // Smooth transition over 0.5 seconds
-		easeLinearity: 0.5,
+		duration: 0.3, // Faster, smoother animation
+		easeLinearity: 0.8,
 	};
 
 	// In compass mode, rotate around the user's location (the anchor point)
@@ -1898,14 +1880,18 @@ function toggleVoiceNavigation() {
 	state.voiceEnabled = !state.voiceEnabled;
 	updateVoiceButtonState();
 
-	if (state.voiceEnabled) {
-		// Reset tracking when enabling
-		state.announcedSteps.clear();
-		state.currentVoiceStepIndex = 0;
+	// On mobile, speech synthesis often needs to be initiated by a user gesture.
+	// This "unlocks" the ability for the browser to speak later.
+	if (state.voiceEnabled && window.speechSynthesis) {
+		// Cancel any previous speech and speak a silent utterance to activate.
+		window.speechSynthesis.cancel();
+		const unlock_utterance = new SpeechSynthesisUtterance("");
+		window.speechSynthesis.speak(unlock_utterance);
+
+		// Now announce the status.
 		speak("Voice navigation enabled");
 	} else {
 		speak("Voice navigation disabled");
-		// Cancel any ongoing speech
 		if (window.speechSynthesis) {
 			window.speechSynthesis.cancel();
 		}
