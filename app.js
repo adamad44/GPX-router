@@ -1403,19 +1403,19 @@ function onDeviceOrientation(event) {
 function smoothHeading(newHeading, oldHeading, smoothingFactor = 0.3) {
 	// Handle wraparound at 0/360 degrees
 	let delta = newHeading - oldHeading;
-	
+
 	// Normalize delta to be between -180 and 180
 	while (delta > 180) delta -= 360;
 	while (delta < -180) delta += 360;
-	
+
 	// Apply smoothing
 	const smoothedDelta = delta * smoothingFactor;
 	let result = oldHeading + smoothedDelta;
-	
+
 	// Normalize result to 0-360
 	while (result < 0) result += 360;
 	while (result >= 360) result -= 360;
-	
+
 	return result;
 }
 
@@ -1434,7 +1434,7 @@ function applyMapRotation() {
 		} else if (typeof state.gpsHeading === "number" && !isNaN(state.gpsHeading)) {
 			heading = state.gpsHeading;
 		}
-		
+
 		// Apply light smoothing for compass mode (30% of the change)
 		if (heading !== null) {
 			heading = smoothHeading(heading, state.smoothedHeading, 0.3);
@@ -1456,8 +1456,8 @@ function applyMapRotation() {
 
 		if (activeRoute) {
 			const progress = findNearestPointOnRoute(state.userPosition, activeRoute);
-			// Look 50-80 meters ahead for a more stable bearing
-			const lookAheadDistance = Math.max(50, Math.min(80, state.simulationSpeed / 2));
+			// Look much further ahead (100-150m) for very stable bearing on straights and gentle curves
+			const lookAheadDistance = Math.max(100, Math.min(150, state.simulationSpeed));
 			const lookAheadPoint = getPointAhead(
 				activeRoute,
 				progress.index,
@@ -1477,10 +1477,10 @@ function applyMapRotation() {
 		) {
 			heading = state.gpsHeading;
 		}
-		
-		// Apply stronger smoothing for route mode (20% of the change for smoother transitions)
+
+		// Apply moderate smoothing for route mode (50% of the change for responsive but smooth transitions)
 		if (heading !== null) {
-			heading = smoothHeading(heading, state.smoothedHeading, 0.2);
+			heading = smoothHeading(heading, state.smoothedHeading, 0.5);
 		}
 	}
 
@@ -1516,8 +1516,8 @@ function setMapBearing(angleDeg) {
 
 	const rotationOptions = {
 		animate: true,
-		duration: 0.25, // Smooth animation duration
-		easeLinearity: 0.5, // Smoother easing
+		duration: 0.2, // Quick, responsive animation
+		easeLinearity: 0.3, // Smooth easing for natural feel
 	};
 
 	// In compass mode, rotate around the user's location (the anchor point)
