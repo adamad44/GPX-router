@@ -119,18 +119,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Prevent pinch zoom and double-tap zoom on Safari/iOS
 function preventZoom() {
-	// Prevent double-tap zoom on iOS Safari
+	// More aggressive double-tap zoom prevention for Safari
 	let lastTouchEnd = 0;
 	document.addEventListener(
 		"touchend",
 		(event) => {
 			const now = Date.now();
-			if (now - lastTouchEnd <= 300) {
+			const timeDiff = now - lastTouchEnd;
+
+			// Prevent double tap if within 500ms
+			if (timeDiff < 500 && timeDiff > 0) {
 				event.preventDefault();
+				event.stopImmediatePropagation();
 			}
 			lastTouchEnd = now;
 		},
-		{ passive: false }
+		{ passive: false, capture: true }
 	);
 
 	// Prevent pinch zoom
@@ -147,16 +151,6 @@ function preventZoom() {
 	});
 
 	// Prevent touchmove zoom (two-finger zoom)
-	let initialDistance = 0;
-	document.addEventListener("touchstart", (e) => {
-		if (e.touches.length > 1) {
-			initialDistance = Math.hypot(
-				e.touches[0].pageX - e.touches[1].pageX,
-				e.touches[0].pageY - e.touches[1].pageY
-			);
-		}
-	});
-
 	document.addEventListener(
 		"touchmove",
 		(e) => {
@@ -1457,7 +1451,10 @@ function applyMapRotation() {
 		if (activeRoute) {
 			const progress = findNearestPointOnRoute(state.userPosition, activeRoute);
 			// Look much further ahead (100-150m) for very stable bearing on straights and gentle curves
-			const lookAheadDistance = Math.max(100, Math.min(150, state.simulationSpeed));
+			const lookAheadDistance = Math.max(
+				100,
+				Math.min(150, state.simulationSpeed)
+			);
 			const lookAheadPoint = getPointAhead(
 				activeRoute,
 				progress.index,
@@ -2122,8 +2119,18 @@ function resetApp() {
 }
 
 // ============================================
-// VOICE NAVIGATION FUNCTIONS
+// VOICE NAVIGATION FUNCTIONS (Completely Redesigned)
 // ============================================
+
+// Voice navigation state
+const voiceState = {
+	isInitialized: false,
+	isSpeaking: false,
+	selectedVoice: null,
+	lastAnnouncedStep: -1,
+	lastAnnouncedDistance: null,
+	repeatCount: 0,
+};
 
 // Initialize voice navigation button
 function initVoiceNavigation() {
@@ -2147,6 +2154,55 @@ function initVoiceNavigation() {
 
 	voiceButton.addEventListener("click", toggleVoiceNavigation);
 	updateVoiceButtonState();
+
+	// Initialize speech synthesis
+	initializeSpeechSynthesis();
+}
+
+// Initialize speech synthesis properly for iOS/Safari
+function initializeSpeechSynthesis() {
+	if (!window.speechSynthesis) {
+		console.warn("Speech synthesis not supported");
+		return;
+	}
+
+	// Load voices
+	let voicesLoaded = false;
+
+	const loadVoices = () => {
+		const voices = window.speechSynthesis.getVoices();
+		if (voices.length > 0 && !voicesLoaded) {
+			voicesLoaded = true;
+
+			// Select best voice (prefer UK English, then US English)
+			voiceState.selectedVoice =
+				voices.find((v) => v.lang === "en-GB" && v.name.includes("Female")) ||
+				voices.find((v) => v.lang === "en-GB") ||
+				voices.find(
+					(v) => v.lang.startsWith("en-US") && v.name.includes("Female")
+				) ||
+				voices.find((v) => v.lang.startsWith("en-US")) ||
+				voices.find((v) => v.lang.startsWith("en")) ||
+				voices[0];
+
+			console.log(
+				"✓ Voice selected:",
+				voiceState.selectedVoice?.name || "default"
+			);
+		}
+	};
+
+	// iOS needs the onvoiceschanged event
+	if (speechSynthesis.onvoiceschanged !== undefined) {
+		speechSynthesis.onvoiceschanged = loadVoices;
+	}
+
+	// Also try loading immediately
+	loadVoices();
+
+	// iOS/Safari requires user interaction to unlock audio
+	// This will be called when user clicks the voice button
+	voiceState.isInitialized = true;
 }
 
 // Toggle voice navigation on/off
@@ -2155,23 +2211,31 @@ function toggleVoiceNavigation() {
 	updateVoiceButtonState();
 
 	if (state.voiceEnabled) {
-		// On many browsers, speech synthesis must be initiated by a user gesture.
-		// This "unlocks" the ability for the browser to speak later.
-		const unlock = () => {
-			window.speechSynthesis.cancel(); // Clear any previous queue
-			const utterance = new SpeechSynthesisUtterance(""); // Silent utterance
-			window.speechSynthesis.speak(utterance);
-			document.removeEventListener("click", unlock); // Clean up listener
-		};
-		document.addEventListener("click", unlock);
+		// CRITICAL: Unlock speech synthesis with immediate user gesture
+		// iOS Safari requires this to happen synchronously in the click handler
+		const unlockUtterance = new SpeechSynthesisUtterance(" ");
+		unlockUtterance.volume = 0.01; // Nearly silent
+		unlockUtterance.rate = 10; // Very fast
+		window.speechSynthesis.speak(unlockUtterance);
 
-		// Announce status after a short delay to ensure the "unlock" has time to work
-		setTimeout(() => speak("Voice navigation enabled"), 100);
+		// Now announce that voice is enabled
+		setTimeout(() => {
+			speakImmediate("Voice guidance on");
+		}, 200);
+
+		// Reset tracking
+		voiceState.lastAnnouncedStep = -1;
+		voiceState.lastAnnouncedDistance = null;
+		state.announcedSteps.clear();
+
+		console.log("🔊 Voice navigation enabled");
 	} else {
-		speak("Voice navigation disabled");
+		// Cancel any ongoing speech
 		if (window.speechSynthesis) {
 			window.speechSynthesis.cancel();
 		}
+		speakImmediate("Voice guidance off");
+		console.log("🔇 Voice navigation disabled");
 	}
 }
 
@@ -2199,8 +2263,7 @@ async function getOSRMRouteWithSteps(routePoints) {
 		return null;
 	}
 
-	// OSRM has a limit on number of coordinates (typically 100)
-	// We'll sample the route to stay under this limit while preserving shape
+	// Sample route to stay under OSRM's 100 coordinate limit
 	const maxCoords = 100;
 	let sampledPoints = routePoints;
 
@@ -2225,21 +2288,32 @@ async function getOSRMRouteWithSteps(routePoints) {
 		if (data.code === "Ok" && data.routes && data.routes.length > 0) {
 			const route = data.routes[0];
 
-			// Extract all steps with their instructions and locations
+			// Extract and enhance navigation steps
 			const steps = [];
 
 			if (route.legs) {
 				for (const leg of route.legs) {
 					if (leg.steps) {
 						for (const step of leg.steps) {
-							if (step.maneuver && step.maneuver.instruction) {
+							if (step.maneuver) {
+								const maneuver = step.maneuver;
+								const instruction = maneuver.instruction || "";
+
+								// Skip "depart" and "arrive" instructions - we'll handle these separately
+								if (maneuver.type === "depart" || maneuver.type === "arrive") {
+									continue;
+								}
+
 								steps.push({
-									instruction: step.maneuver.instruction,
-									location: step.maneuver.location, // [lon, lat]
+									instruction: instruction,
+									enhancedInstruction: enhanceInstruction(maneuver, step),
+									location: maneuver.location, // [lon, lat]
 									distance: step.distance, // meters to next maneuver
-									type: step.maneuver.type,
-									modifier: step.maneuver.modifier,
+									duration: step.duration,
+									type: maneuver.type,
+									modifier: maneuver.modifier,
 									name: step.name || "",
+									exit: maneuver.exit, // For roundabouts
 								});
 							}
 						}
@@ -2247,8 +2321,10 @@ async function getOSRMRouteWithSteps(routePoints) {
 				}
 			}
 
+			console.log(`✓ Loaded ${steps.length} navigation instructions`);
+
 			return {
-				geometry: route.geometry.coordinates.map((coord) => [coord[1], coord[0]]), // Convert to [lat, lon]
+				geometry: route.geometry.coordinates.map((coord) => [coord[1], coord[0]]),
 				steps: steps,
 				distance: route.distance,
 				duration: route.duration,
@@ -2263,47 +2339,193 @@ async function getOSRMRouteWithSteps(routePoints) {
 	}
 }
 
-// Speak text using Web Speech API
-function speak(text) {
-	if (!window.speechSynthesis || !state.voiceEnabled) {
-		console.warn("Speech synthesis not supported or voice not enabled");
+// Enhance instruction with better wording, especially for roundabouts
+function enhanceInstruction(maneuver, step) {
+	const type = maneuver.type;
+	const modifier = maneuver.modifier;
+	const name = step.name || "";
+	const exit = maneuver.exit;
+
+	// Special handling for roundabouts
+	if (type === "roundabout" || type === "rotary") {
+		if (exit) {
+			const exitWord =
+				exit === 1
+					? "first"
+					: exit === 2
+					? "second"
+					: exit === 3
+					? "third"
+					: exit === 4
+					? "fourth"
+					: exit === 5
+					? "fifth"
+					: `exit number ${exit}`;
+
+			if (name) {
+				return `At the roundabout, take the ${exitWord} exit onto ${name}`;
+			} else {
+				return `At the roundabout, take the ${exitWord} exit`;
+			}
+		} else {
+			return `Enter the roundabout and follow signs${name ? " for " + name : ""}`;
+		}
+	}
+
+	// Handle regular turns
+	if (type === "turn") {
+		const direction = modifier?.includes("left")
+			? "left"
+			: modifier?.includes("right")
+			? "right"
+			: modifier;
+		if (name) {
+			return `Turn ${direction} onto ${name}`;
+		}
+		return `Turn ${direction}`;
+	}
+
+	// Handle slight turns / bear
+	if (modifier === "slight left" || modifier === "slight right") {
+		const direction = modifier.includes("left") ? "left" : "right";
+		if (name) {
+			return `Bear ${direction} onto ${name}`;
+		}
+		return `Bear ${direction}`;
+	}
+
+	// Handle sharp turns
+	if (modifier === "sharp left" || modifier === "sharp right") {
+		const direction = modifier.includes("left") ? "left" : "right";
+		if (name) {
+			return `Sharp ${direction} onto ${name}`;
+		}
+		return `Sharp ${direction}`;
+	}
+
+	// Continue/straight
+	if (type === "continue" || type === "new name") {
+		if (name) {
+			return `Continue onto ${name}`;
+		}
+		return `Continue straight`;
+	}
+
+	// Fork
+	if (type === "fork") {
+		const direction = modifier?.includes("left")
+			? "left"
+			: modifier?.includes("right")
+			? "right"
+			: "straight";
+		if (name) {
+			return `At the fork, keep ${direction} onto ${name}`;
+		}
+		return `At the fork, keep ${direction}`;
+	}
+
+	// Merge
+	if (type === "merge") {
+		const direction = modifier?.includes("left")
+			? "left"
+			: modifier?.includes("right")
+			? "right"
+			: "";
+		return `Merge ${direction}`.trim();
+	}
+
+	// On/off ramp
+	if (type === "on ramp" || type === "off ramp") {
+		const direction = modifier?.includes("left")
+			? "left"
+			: modifier?.includes("right")
+			? "right"
+			: "";
+		return `Take the ${direction} ramp`.trim();
+	}
+
+	// Fallback to OSRM instruction
+	return maneuver.instruction || `Continue ${modifier || ""}`.trim();
+}
+
+// Speak text immediately (for confirmations)
+function speakImmediate(text) {
+	if (!window.speechSynthesis) {
 		return;
 	}
 
-	// Cancel any ongoing speech to prevent overlap
+	// Cancel any ongoing speech
 	window.speechSynthesis.cancel();
+	voiceState.isSpeaking = false;
 
 	const utterance = new SpeechSynthesisUtterance(text);
-	utterance.rate = 1.1; // Slightly faster, more natural pace
+	utterance.rate = 1.0;
 	utterance.pitch = 1.0;
 	utterance.volume = 1.0;
 
-	// Try to find a preferred voice
-	const voices = window.speechSynthesis.getVoices();
-	let preferredVoice = voices.find(
-		(voice) => voice.name === "Google UK English Female"
-	);
-	if (!preferredVoice) {
-		preferredVoice = voices.find(
-			(voice) => voice.lang.startsWith("en-GB") && voice.localService
-		);
-	}
-	if (!preferredVoice) {
-		preferredVoice = voices.find((voice) => voice.lang.startsWith("en-US"));
-	}
-	if (preferredVoice) {
-		utterance.voice = preferredVoice;
+	if (voiceState.selectedVoice) {
+		utterance.voice = voiceState.selectedVoice;
 	}
 
-	// On some mobile browsers, speech needs to be triggered in a user gesture.
-	// This is a workaround to "unlock" speech synthesis.
-	const promise = window.speechSynthesis.speak(utterance);
-	if (promise !== undefined) {
-		promise.catch((error) => {
-			console.error("Speech synthesis failed:", error);
-		});
+	utterance.onstart = () => {
+		voiceState.isSpeaking = true;
+	};
+
+	utterance.onend = () => {
+		voiceState.isSpeaking = false;
+	};
+
+	utterance.onerror = (event) => {
+		console.error("Speech error:", event);
+		voiceState.isSpeaking = false;
+	};
+
+	window.speechSynthesis.speak(utterance);
+	console.log("🔊", text);
+}
+
+// Speak navigation instruction with distance
+function speakNavigation(text, priority = "normal") {
+	if (!window.speechSynthesis || !state.voiceEnabled) {
+		return;
 	}
-	console.log("🔊 Voice:", text);
+
+	// For high priority (imminent turns), cancel ongoing speech
+	if (priority === "high") {
+		window.speechSynthesis.cancel();
+		voiceState.isSpeaking = false;
+	}
+
+	// Don't interrupt ongoing speech for normal priority
+	if (voiceState.isSpeaking && priority === "normal") {
+		console.log("⏸️ Speech busy, skipping:", text);
+		return;
+	}
+
+	const utterance = new SpeechSynthesisUtterance(text);
+	utterance.rate = 0.95; // Slightly slower for clarity
+	utterance.pitch = 1.0;
+	utterance.volume = 1.0;
+
+	if (voiceState.selectedVoice) {
+		utterance.voice = voiceState.selectedVoice;
+	}
+
+	utterance.onstart = () => {
+		voiceState.isSpeaking = true;
+	};
+
+	utterance.onend = () => {
+		voiceState.isSpeaking = false;
+	};
+
+	utterance.onerror = (event) => {
+		console.error("Speech error:", event);
+		voiceState.isSpeaking = false;
+	};
+
+	window.speechSynthesis.speak(utterance);
+	console.log("🔊", text);
 }
 
 // Check if we should announce upcoming maneuvers
@@ -2317,59 +2539,142 @@ function checkVoiceGuidance() {
 		return;
 	}
 
-	const ADVANCE_NOTICE_DISTANCE = 300; // 300 meters for "in X meters"
-	const IMMINENT_NOTICE_DISTANCE = 50; // 50 meters for "now"
+	// Distance thresholds for announcements
+	const LONG_ADVANCE = 500; // 500m - early warning
+	const ADVANCE = 200; // 200m - main instruction
+	const IMMINENT = 75; // 75m - "prepare to turn"
+	const NOW = 30; // 30m - final instruction
 
-	// Find the next step we haven't given the final announcement for
+	// Find the closest upcoming step
+	let closestStepIndex = -1;
+	let closestDistance = Infinity;
+
 	for (let i = state.currentVoiceStepIndex; i < state.voiceSteps.length; i++) {
 		const step = state.voiceSteps[i];
-		const stepLocation = [step.location[1], step.location[0]]; // OSRM is [lon, lat]
-		const distanceToStep = calculateDistance(state.userPosition, stepLocation);
+		const stepLocation = [step.location[1], step.location[0]]; // [lon, lat]
+		const distance = calculateDistance(state.userPosition, stepLocation);
 
-		const advanceKey = `step-${i}-advance`;
-		const finalKey = `step-${i}-final`;
-
-		// 1. Give advance notice
-		if (
-			distanceToStep <= ADVANCE_NOTICE_DISTANCE &&
-			distanceToStep > IMMINENT_NOTICE_DISTANCE &&
-			!state.announcedSteps.has(advanceKey)
-		) {
-			// Round distance to nearest 50 for cleaner instructions
-			const roundedDistance = Math.round(distanceToStep / 50) * 50;
-			speak(`In ${roundedDistance} meters, ${step.instruction}`);
-			state.announcedSteps.add(advanceKey);
-			break; // Only give one instruction at a time
+		if (distance < closestDistance) {
+			closestDistance = distance;
+			closestStepIndex = i;
 		}
 
-		// 2. Give final, imminent notice
-		if (
-			distanceToStep <= IMMINENT_NOTICE_DISTANCE &&
-			!state.announcedSteps.has(finalKey)
-		) {
-			speak(step.instruction);
-			state.announcedSteps.add(finalKey);
-			state.currentVoiceStepIndex = i + 1; // Move to the next step
-			break; // Only give one instruction at a time
-		}
-
-		// If we are already past the step, move to the next one
-		if (
-			distanceToStep > ADVANCE_NOTICE_DISTANCE &&
-			i === state.currentVoiceStepIndex
-		) {
-			// This can happen if the user deviates and rejoins the route later
-			// We should find the *correct* next step based on route progress, but for now, this is a simple fix.
-		}
+		// Only check next few steps to avoid looking too far ahead
+		if (i > state.currentVoiceStepIndex + 3) break;
 	}
 
-	// Check for arrival
-	if (state.currentVoiceStepIndex >= state.voiceSteps.length) {
-		const endPoint = state.gpxRoute[state.gpxRoute.length - 1];
-		const distanceToEnd = calculateDistance(state.userPosition, endPoint);
-		if (distanceToEnd < 50 && !state.announcedSteps.has("arrival")) {
-			speak("You have arrived at your destination.");
-			state.announcedSteps.add("arrival");
+	if (closestStepIndex === -1) {
+		// Check if we've arrived
+		checkArrival();
+		return;
+	}
+
+	const step = state.voiceSteps[closestStepIndex];
+	const distance = closestDistance;
+
+	// Create unique announcement keys
+	const longKey = `${closestStepIndex}-long`;
+	const advanceKey = `${closestStepIndex}-advance`;
+	const imminentKey = `${closestStepIndex}-imminent`;
+	const nowKey = `${closestStepIndex}-now`;
+
+	// 1. Long advance notice (500m) - only for significant turns
+	if (
+		distance <= LONG_ADVANCE &&
+		distance > ADVANCE &&
+		!state.announcedSteps.has(longKey)
+	) {
+		// Only announce long advance for major maneuvers (not slight adjustments)
+		if (
+			step.type === "roundabout" ||
+			step.type === "rotary" ||
+			(step.type === "turn" && !step.modifier?.includes("slight"))
+		) {
+			const distanceRounded = Math.round(distance / 50) * 50;
+			speakNavigation(
+				`In ${distanceRounded} meters, ${step.enhancedInstruction}`,
+				"normal"
+			);
+			state.announcedSteps.add(longKey);
+			voiceState.lastAnnouncedStep = closestStepIndex;
+			voiceState.lastAnnouncedDistance = distance;
 		}
+		return;
+	}
+
+	// 2. Main advance notice (200m)
+	if (
+		distance <= ADVANCE &&
+		distance > IMMINENT &&
+		!state.announcedSteps.has(advanceKey)
+	) {
+		const distanceRounded = Math.round(distance / 25) * 25;
+		speakNavigation(
+			`In ${distanceRounded} meters, ${step.enhancedInstruction}`,
+			"normal"
+		);
+		state.announcedSteps.add(advanceKey);
+		voiceState.lastAnnouncedStep = closestStepIndex;
+		voiceState.lastAnnouncedDistance = distance;
+		return;
+	}
+
+	// 3. Imminent notice (75m) - "prepare to..."
+	if (
+		distance <= IMMINENT &&
+		distance > NOW &&
+		!state.announcedSteps.has(imminentKey)
+	) {
+		// For roundabouts, repeat the exit instruction
+		if (step.type === "roundabout" || step.type === "rotary") {
+			speakNavigation(`Prepare to ${step.enhancedInstruction}`, "normal");
+		} else {
+			speakNavigation(`Prepare to ${step.enhancedInstruction}`, "normal");
+		}
+		state.announcedSteps.add(imminentKey);
+		voiceState.lastAnnouncedStep = closestStepIndex;
+		voiceState.lastAnnouncedDistance = distance;
+		return;
+	}
+
+	// 4. Final "now" instruction (30m)
+	if (distance <= NOW && !state.announcedSteps.has(nowKey)) {
+		speakNavigation(step.enhancedInstruction, "high");
+		state.announcedSteps.add(nowKey);
+		voiceState.lastAnnouncedStep = closestStepIndex;
+		voiceState.lastAnnouncedDistance = distance;
+
+		// Move to next step
+		state.currentVoiceStepIndex = closestStepIndex + 1;
+		return;
+	}
+
+	// If we've passed this step (more than 100m past), move to next
+	if (distance > 100 && closestStepIndex === voiceState.lastAnnouncedStep) {
+		state.currentVoiceStepIndex = closestStepIndex + 1;
+		console.log(`✓ Passed step ${closestStepIndex}, moving to next`);
+	}
+}
+
+// Check if user has arrived at destination
+function checkArrival() {
+	if (!state.gpxRoute || state.gpxRoute.length === 0) return;
+
+	const endPoint = state.gpxRoute[state.gpxRoute.length - 1];
+	const distanceToEnd = calculateDistance(state.userPosition, endPoint);
+
+	// Announce when within 100m of destination
+	if (distanceToEnd < 100 && !state.announcedSteps.has("arriving")) {
+		speakNavigation(
+			`Arriving at destination in ${Math.round(distanceToEnd)} meters`,
+			"normal"
+		);
+		state.announcedSteps.add("arriving");
+	}
+
+	// Announce arrival when within 30m
+	if (distanceToEnd < 30 && !state.announcedSteps.has("arrival")) {
+		speakNavigation("You have arrived at your destination", "high");
+		state.announcedSteps.add("arrival");
 	}
 }
