@@ -2311,8 +2311,7 @@ async function getOSRMRouteWithSteps(routePoints) {
 								}
 
 								steps.push({
-									instruction: instruction,
-									enhancedInstruction: enhanceInstruction(maneuver, step),
+									instruction: instruction, // OSRM's actual instruction
 									location: maneuver.location, // [lon, lat]
 									distance: step.distance, // meters to next maneuver
 									duration: step.duration,
@@ -2321,6 +2320,9 @@ async function getOSRMRouteWithSteps(routePoints) {
 									name: step.name || "",
 									exit: maneuver.exit, // For roundabouts
 								});
+								
+								// Log what OSRM is giving us
+								console.log(`OSRM instruction: "${instruction}" (type: ${maneuver.type}, exit: ${maneuver.exit || 'none'})`);
 							}
 						}
 					}
@@ -2607,7 +2609,7 @@ function checkVoiceGuidance() {
 		) {
 			const distanceRounded = Math.round(distance / 50) * 50;
 			speakNavigation(
-				`In ${distanceRounded} meters, ${step.enhancedInstruction}`,
+				`In ${distanceRounded} meters, ${step.instruction}`,
 				"normal"
 			);
 			state.announcedSteps.add(longKey);
@@ -2625,7 +2627,7 @@ function checkVoiceGuidance() {
 	) {
 		const distanceRounded = Math.round(distance / 25) * 25;
 		speakNavigation(
-			`In ${distanceRounded} meters, ${step.enhancedInstruction}`,
+			`In ${distanceRounded} meters, ${step.instruction}`,
 			"normal"
 		);
 		state.announcedSteps.add(advanceKey);
@@ -2640,12 +2642,8 @@ function checkVoiceGuidance() {
 		distance > NOW &&
 		!state.announcedSteps.has(imminentKey)
 	) {
-		// For roundabouts, repeat the exit instruction
-		if (step.type === "roundabout" || step.type === "rotary") {
-			speakNavigation(`Prepare to ${step.enhancedInstruction}`, "normal");
-		} else {
-			speakNavigation(`Prepare to ${step.enhancedInstruction}`, "normal");
-		}
+		// Just repeat the instruction
+		speakNavigation(step.instruction, "normal");
 		state.announcedSteps.add(imminentKey);
 		voiceState.lastAnnouncedStep = closestStepIndex;
 		voiceState.lastAnnouncedDistance = distance;
@@ -2654,7 +2652,7 @@ function checkVoiceGuidance() {
 
 	// 4. Final "now" instruction (30m)
 	if (distance <= NOW && !state.announcedSteps.has(nowKey)) {
-		speakNavigation(step.enhancedInstruction, "high");
+		speakNavigation(step.instruction, "high");
 		state.announcedSteps.add(nowKey);
 		voiceState.lastAnnouncedStep = closestStepIndex;
 		voiceState.lastAnnouncedDistance = distance;
@@ -2683,10 +2681,10 @@ function checkVoiceGuidance() {
 			) {
 				// Only if next turn is within 500m
 				// Check that we're actually past it (behind us)
-				speakNavigation(step.enhancedInstruction, "high");
+				speakNavigation(step.instruction, "high");
 				state.announcedSteps.add(justPassedKey);
 				console.log(
-					`✓ Just passed turn, immediately announcing next: ${step.enhancedInstruction}`
+					`✓ Just passed turn, immediately announcing next: ${step.instruction}`
 				);
 			}
 		}
