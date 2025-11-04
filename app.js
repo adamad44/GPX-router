@@ -1054,7 +1054,8 @@ function startNavigation() {
 			processNewPosition(state.simulatedPosition[0], state.simulatedPosition[1]);
 		}
 	} else {
-		showLocationModal();
+		// Directly request location permission without showing custom modal
+		requestLocationPermission();
 	}
 
 	state.isNavigating = true;
@@ -1077,19 +1078,14 @@ function requestLocationPermission() {
 	// Check if geolocation is supported
 	if (!navigator.geolocation) {
 		alert("Geolocation is not supported by your browser.");
-		closeLocationModal();
 		return;
 	}
-
-	// Close modal and immediately request location
-	// This triggers the native browser permission popup (including iOS Safari)
-	closeLocationModal();
 
 	// Request compass access immediately while we're still in a user gesture (iOS requirement)
 	// This ensures we always have compass data for the direction arrow
 	enableDeviceCompass();
 
-	// Make a one-time position request to trigger native permission dialog
+	// Make a one-time position request to trigger native browser permission dialog
 	navigator.geolocation.getCurrentPosition(
 		(position) => {
 			// Success - permission granted, now start continuous tracking
@@ -1303,7 +1299,7 @@ function processNewPosition(latitude, longitude, accuracy, heading) {
 		const duration = state.rotationMode === "compass" ? 0.15 : 0.5;
 		centerOnLatLngWithOffset([latitude, longitude], state.map.getZoom() || 16, {
 			duration: duration,
-			easeLinearity: 0.5
+			easeLinearity: 0.5,
 		});
 	}
 
