@@ -2262,6 +2262,21 @@ function updateVoiceButtonState() {
 	}
 }
 
+// Helper function to get ordinal number (1st, 2nd, 3rd, etc.)
+function getOrdinal(num) {
+	const ordinals = {
+		1: "first",
+		2: "second", 
+		3: "third",
+		4: "fourth",
+		5: "fifth",
+		6: "sixth",
+		7: "seventh",
+		8: "eighth"
+	};
+	return ordinals[num] || `${num}th`;
+}
+
 // Convert GPX route to OSRM route with turn-by-turn instructions
 async function getOSRMRouteWithSteps(routePoints) {
 	if (!routePoints || routePoints.length < 2) {
@@ -2303,15 +2318,79 @@ async function getOSRMRouteWithSteps(routePoints) {
 						for (const step of leg.steps) {
 							if (step.maneuver) {
 								const maneuver = step.maneuver;
-								const instruction = maneuver.instruction || "";
-
+								
 								// Skip "depart" and "arrive" instructions - we'll handle these separately
 								if (maneuver.type === "depart" || maneuver.type === "arrive") {
 									continue;
 								}
 
+								// Build instruction from OSRM data (like Google Maps)
+								let instruction = "";
+								const type = maneuver.type;
+								const modifier = maneuver.modifier || "";
+								const roadName = step.name || "";
+								const exit = maneuver.exit;
+
+								// Build Google Maps-style instructions
+								if (type === "roundabout" || type === "rotary") {
+									if (exit) {
+										instruction = `At the roundabout, take the ${getOrdinal(exit)} exit`;
+										if (roadName) {
+											instruction += ` onto ${roadName}`;
+										}
+									} else {
+										instruction = "Enter the roundabout";
+									}
+								} else if (type === "turn") {
+									if (modifier.includes("left")) {
+										instruction = "Turn left";
+									} else if (modifier.includes("right")) {
+										instruction = "Turn right";
+									} else {
+										instruction = "Turn";
+									}
+									if (roadName) {
+										instruction += ` onto ${roadName}`;
+									}
+								} else if (type === "fork") {
+									if (modifier.includes("left")) {
+										instruction = "Keep left";
+									} else if (modifier.includes("right")) {
+										instruction = "Keep right";
+									} else {
+										instruction = "Keep straight";
+									}
+									if (roadName) {
+										instruction += ` onto ${roadName}`;
+									}
+								} else if (type === "merge") {
+									instruction = "Merge";
+									if (modifier.includes("left")) {
+										instruction += " left";
+									} else if (modifier.includes("right")) {
+										instruction += " right";
+									}
+								} else if (type === "continue" || type === "new name") {
+									instruction = "Continue";
+									if (roadName) {
+										instruction += ` onto ${roadName}`;
+									} else {
+										instruction += " straight";
+									}
+								} else if (type === "on ramp" || type === "off ramp") {
+									instruction = type === "on ramp" ? "Take the ramp" : "Take the exit";
+									if (modifier.includes("left")) {
+										instruction = "Take the left " + (type === "on ramp" ? "ramp" : "exit");
+									} else if (modifier.includes("right")) {
+										instruction = "Take the right " + (type === "on ramp" ? "ramp" : "exit");
+									}
+								} else {
+									// Fallback: use OSRM's instruction or build basic one
+									instruction = maneuver.instruction || `Continue ${modifier}`.trim();
+								}
+
 								steps.push({
-									instruction: instruction, // OSRM's actual instruction
+									instruction: instruction,
 									location: maneuver.location, // [lon, lat]
 									distance: step.distance, // meters to next maneuver
 									duration: step.duration,
@@ -2320,9 +2399,13 @@ async function getOSRMRouteWithSteps(routePoints) {
 									name: step.name || "",
 									exit: maneuver.exit, // For roundabouts
 								});
-								
-								// Log what OSRM is giving us
-								console.log(`OSRM instruction: "${instruction}" (type: ${maneuver.type}, exit: ${maneuver.exit || 'none'})`);
+
+								// Log what we're creating
+								console.log(
+									`Voice instruction: "${instruction}" (type: ${type}, modifier: ${modifier}, exit: ${
+										exit || "none"
+									})`
+								);
 							}
 						}
 					}
