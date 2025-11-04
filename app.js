@@ -34,6 +34,8 @@ const state = {
 	lastVoiceCheckPosition: null,
 	selectedTestCentre: null,
 	currentView: "centre-selection", // 'centre-selection', 'route-selection', 'navigation'
+	previewMap: null,
+	selectedRouteForPreview: null,
 	// Simulation State
 	isSimulating: false,
 	simulationSpeed: 0, // in km/h
@@ -174,6 +176,10 @@ function initializeEventListeners() {
 	const togglePreviewButton = document.getElementById("toggle-preview-button");
 	const toggleRotationButton = document.getElementById("toggle-rotation-button");
 	const backButton = document.getElementById("back-button");
+	const previewBackButton = document.getElementById("preview-back-button");
+	const startNavButton = document.getElementById("start-nav-button");
+	const downloadGpxButton = document.getElementById("download-gpx-button");
+	const downloadAllButton = document.getElementById("download-all-button");
 
 	// Simulation controls
 	const speedSlider = document.getElementById("speed-slider");
@@ -205,6 +211,14 @@ function initializeEventListeners() {
 	togglePreviewButton.addEventListener("click", togglePreviewRoute);
 	toggleRotationButton.addEventListener("click", toggleMapRotation);
 	if (backButton) backButton.addEventListener("click", goBackToTestCentres);
+	if (previewBackButton)
+		previewBackButton.addEventListener("click", hideRoutePreview);
+	if (startNavButton)
+		startNavButton.addEventListener("click", startNavigationFromPreview);
+	if (downloadGpxButton)
+		downloadGpxButton.addEventListener("click", downloadSingleGpx);
+	if (downloadAllButton)
+		downloadAllButton.addEventListener("click", downloadAllGpx);
 
 	// Simulation listeners
 	if (speedSlider) {
@@ -490,6 +504,159 @@ function togglePreviewRoute() {
 	}
 }
 
+// Show route preview
+async function showRoutePreview(route) {
+	try {
+		const response = await fetch(`routes/${route.file}`);
+		if (!response.ok) throw new Error(`HTTP ${response.status}`);
+		const gpxText = await response.text();
+		const points = parseGPX(gpxText);
+		if (points.length === 0) throw new Error("No route points found in GPX");
+
+		state.selectedRouteForPreview = { ...route, points };
+
+		document.getElementById("upload-section").classList.add("hidden");
+		document.getElementById("route-preview-section").classList.remove("hidden");
+		document.getElementById("preview-route-name").textContent = route.name;
+
+		if (state.previewMap) {
+			state.previewMap.remove();
+		}
+
+		state.previewMap = L.map("preview-map", {
+			zoomControl: true,
+			attributionControl: true,
+		});
+
+		L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+			attribution:
+				'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+		}).addTo(state.previewMap);
+
+		const routePolyline = L.polyline(points, {
+			color: "#3b82f6",
+			weight: 5,
+		}).addTo(state.previewMap);
+
+		const startIcon = L.divIcon({
+			className: "custom-marker",
+			html: `<div style="background: #28a745; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"></div>`,
+			iconSize: [24, 24],
+			iconAnchor: [12, 12],
+		});
+
+		const endIcon = L.divIcon({
+			className: "custom-marker",
+			html: `<div style="background: #dc3545; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"></div>`,
+			iconSize: [24, 24],
+			iconAnchor: [12, 12],
+		});
+
+		L.marker(points[0], { icon: startIcon }).addTo(state.previewMap);
+		L.marker(points[points.length - 1], { icon: endIcon }).addTo(state.previewMap);
+
+		state.previewMap.fitBounds(routePolyline.getBounds(), { padding: [40, 40] });
+	} catch (error) {
+		console.error("Error showing route preview:", error);
+		alert(`Failed to load route preview for ${route.name}.`);
+	}
+}
+
+// Hide route preview
+function hideRoutePreview() {
+	document.getElementById("route-preview-section").classList.add("hidden");
+	document.getElementById("upload-section").classList.remove("hidden");
+	if (state.previewMap) {
+		state.previewMap.remove();
+		state.previewMap = null;
+	}
+	state.selectedRouteForPreview = null;
+}
+
+// Start navigation from preview
+function startNavigationFromPreview() {
+	if (!state.selectedRouteForPreview) {
+		alert("No route selected for navigation.");
+		return;
+	}
+	loadSelectedRouteForNavigation(state.selectedRouteForPreview);
+}
+
+// Download single GPX file
+function downloadSingleGpx() {
+	if (!state.selectedRouteForPreview) return;
+	const { file, name } = state.selectedRouteForPreview;
+	const link = document.createElement("a");
+	link.href = `routes/${file}`;
+	link.download = name.replace(/[^a-z0-9\s]/gi, "_") + ".gpx";
+	document.body.appendChild(link);
+	link.click();
+	document.body.removeChild(link);
+}
+
+// Download all GPX files as ZIP
+async function downloadAllGpx() {
+	if (!state.selectedTestCentre) return;
+
+	const centre = TEST_CENTRES[state.selectedTestCentre];
+	if (!centre || !centre.routes || centre.routes.length === 0) {
+		alert("No routes available for the selected test centre.");
+		return;
+	}
+
+	// Check for JSZip and load if not present
+	if (typeof JSZip === "undefined") {
+		const script = document.createElement("script");
+		script.src =
+			"https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+		document.head.appendChild(script);
+		await new Promise((resolve) => (script.onload = resolve));
+	}
+
+	const zip = new JSZip();
+	const routeFolder = zip.folder(centre.name.replace(/\s+/g, "_"));
+
+	const downloadAllButton = document.getElementById("download-all-button");
+	const originalButtonText = downloadAllButton.innerHTML;
+	downloadAllButton.disabled = true;
+	downloadAllButton.innerHTML = `
+		<svg class="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+			<path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke-width="2" stroke-linecap="round"></path>
+		</svg>
+		<span>Zipping... (0/${centre.routes.length})</span>`;
+
+	let filesZipped = 0;
+	for (const route of centre.routes) {
+		try {
+			const response = await fetch(`routes/${route.file}`);
+			if (response.ok) {
+				const content = await response.blob();
+				const fileName = route.file.split("/").pop();
+				routeFolder.file(fileName, content);
+			}
+		} catch (error) {
+			console.error(`Failed to fetch ${route.file}:`, error);
+		}
+		filesZipped++;
+		downloadAllButton.querySelector(
+			"span"
+		).textContent = `Zipping... (${filesZipped}/${centre.routes.length})`;
+	}
+
+	zip.generateAsync({ type: "blob" }).then((content) => {
+		const link = document.createElement("a");
+		link.href = URL.createObjectURL(content);
+		link.download = `${centre.name}_Routes.zip`;
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+
+		// Restore button
+		downloadAllButton.disabled = false;
+		downloadAllButton.innerHTML = originalButtonText;
+	});
+}
+
 // Toggle Map Rotation Mode (cycles through: route-up -> compass -> off -> route-up)
 function toggleMapRotation() {
 	const button = document.getElementById("toggle-rotation-button");
@@ -555,6 +722,7 @@ function loadTestCentres() {
 // Select a test centre and show its routes
 function selectTestCentre(centreKey) {
 	selectedTestCentre = centreKey;
+	state.selectedTestCentre = centreKey;
 	const centre = TEST_CENTRES[centreKey];
 
 	// Hide test centre list, show routes
@@ -567,15 +735,20 @@ function selectTestCentre(centreKey) {
 		"route-section-title"
 	).textContent = `${centre.name} Routes`;
 
+	// Show download all button
+	document.getElementById("download-all-button").classList.remove("hidden");
+
 	// Load routes for this centre
-	loadRoutes(centre.routes);
+	loadRoutesForCentre(centre);
 }
 
 // Go back to test centre selection
 function goBackToTestCentres() {
 	selectedTestCentre = null;
+	state.selectedTestCentre = null;
 	document.querySelector(".test-centre-section").classList.remove("hidden");
 	document.getElementById("route-section").classList.add("hidden");
+	document.getElementById("download-all-button").classList.add("hidden");
 
 	// Clear any loaded route data
 	state.presetRoutes = {};
@@ -584,6 +757,67 @@ function goBackToTestCentres() {
 }
 
 // Load routes for selected test centre
+function loadRoutesForCentre(centre) {
+	const routeList = document.getElementById("route-list");
+	if (!routeList) return;
+
+	routeList.innerHTML = "";
+
+	centre.routes.forEach((route) => {
+		const card = document.createElement("div");
+		card.className = "route-card";
+		card.innerHTML = `
+			<div class="route-info">
+				<h4 class="route-name">${route.name}</h4>
+			</div>
+			<svg class="route-arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<line x1="5" y1="12" x2="19" y2="12"></line>
+				<polyline points="12 5 19 12 12 19"></polyline>
+			</svg>
+		`;
+		card.addEventListener("click", () => showRoutePreview(route));
+		routeList.appendChild(card);
+	});
+}
+
+// Load Selected Route for Navigation
+async function loadSelectedRouteForNavigation(route) {
+	try {
+		const points = route.points || parseGPX(await (await fetch(`routes/${route.file}`)).text());
+
+		if (points.length === 0) {
+			throw new Error("No route points found");
+		}
+
+		state.gpxRoute = points;
+		state.hasReachedStart = false;
+		state.approachRoute = [];
+
+		document.getElementById("file-info").textContent = `✓ ${route.name} loaded`;
+
+		// Get OSRM route with voice instructions
+		console.log("Fetching turn-by-turn instructions from OSRM...");
+		const osrmRoute = await getOSRMRouteWithSteps(state.gpxRoute);
+		if (osrmRoute && osrmRoute.steps) {
+			state.voiceSteps = osrmRoute.steps;
+			state.currentVoiceStepIndex = 0;
+			state.announcedSteps.clear();
+			console.log(`✓ Loaded ${osrmRoute.steps.length} navigation steps`);
+		} else {
+			console.warn("Could not get voice instructions from OSRM");
+			state.voiceSteps = [];
+		}
+
+		setTimeout(() => {
+			startNavigation();
+		}, 200);
+	} catch (error) {
+		console.error(`Error loading route:`, error);
+		alert("Error loading route. Please try another route.");
+	}
+}
+
+// Load routes for selected test centre (old function - to be removed)
 async function loadRoutes(routes) {
 	const container = document.getElementById("route-list");
 	if (!container) return;
@@ -798,6 +1032,7 @@ function parseGPX(gpxText) {
 function startNavigation() {
 	// Switch to navigation view
 	document.getElementById("upload-section").classList.add("hidden");
+	document.getElementById("route-preview-section").classList.add("hidden");
 	document.getElementById("navigation-section").classList.remove("hidden");
 
 	// Initialize map if not already done
@@ -909,11 +1144,10 @@ function initializeMap() {
 		rotateControl: false,
 	});
 
-	// Add a high-contrast, dark tile layer suitable for navigation
-	L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+	// Add OpenStreetMap tile layer optimized for navigation
+	L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 		attribution:
-			'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-		subdomains: "abcd",
+			'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 		maxZoom: 19,
 	}).addTo(state.map);
 
@@ -1840,11 +2074,13 @@ function resetApp() {
 
 	// Reset UI
 	document.getElementById("navigation-section").classList.add("hidden");
+	document.getElementById("route-preview-section").classList.add("hidden");
 	document.getElementById("upload-section").classList.remove("hidden");
 	document.getElementById("gpx-file-input").value = "";
 	document.getElementById("file-info").textContent = "";
 
 	// Reset to test centre selection
+	goBackToTestCentres();
 	goBackToTestCentres();
 	loadTestCentres();
 }

@@ -66,6 +66,21 @@
 						<div id="route-list" class="route-list">
 							<!-- Routes will be loaded here -->
 						</div>
+						<button id="download-all-button" class="download-all-button hidden">
+							<svg
+								width="20"
+								height="20"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+								<polyline points="7 10 12 15 17 10"></polyline>
+								<line x1="12" y1="15" x2="12" y2="3"></line>
+							</svg>
+							Download All Routes
+						</button>
 					</div>
 
 					<div class="divider">
@@ -92,6 +107,60 @@
 						</label>
 						<div id="file-info" class="file-info"></div>
 					</div>
+				</div>
+			</div>
+
+			<!-- Route Preview Section -->
+			<div id="route-preview-section" class="section hidden">
+				<div class="preview-header">
+					<button id="preview-back-button" class="back-button">
+						<svg
+							width="20"
+							height="20"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
+							<line x1="19" y1="12" x2="5" y2="12"></line>
+							<polyline points="12 19 5 12 12 5"></polyline>
+						</svg>
+						Back
+					</button>
+					<h2 id="preview-route-name" class="section-title">Route Preview</h2>
+				</div>
+				<div id="preview-map-container">
+					<div id="preview-map"></div>
+				</div>
+				<div class="preview-actions">
+					<button id="download-gpx-button" class="preview-button">
+						<svg
+							width="20"
+							height="20"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
+							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+							<polyline points="7 10 12 15 17 10"></polyline>
+							<line x1="12" y1="15" x2="12" y2="3"></line>
+						</svg>
+						Download GPX
+					</button>
+					<button id="start-nav-button" class="preview-button">
+						<svg
+							width="20"
+							height="20"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
+							<path d="M5 3l14 9-14 9V3z"></path>
+						</svg>
+						Start Navigation
+					</button>
 				</div>
 			</div>
 
