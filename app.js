@@ -2352,7 +2352,7 @@ function enhanceInstruction(maneuver, step) {
 	const name = step.name || "";
 	const exit = maneuver.exit;
 
-	// Special handling for roundabouts - SIMPLIFIED
+	// Special handling for roundabouts - ALWAYS SAY EXIT NUMBER WITH DIRECTION
 	if (type === "roundabout" || type === "rotary") {
 		if (exit) {
 			const exitWord =
@@ -2370,9 +2370,35 @@ function enhanceInstruction(maneuver, step) {
 					? "6th"
 					: `${exit}th`;
 
-			return `${exitWord} exit`;
+			// Add direction based on exit number and modifier
+			let direction = "";
+			if (exit === 1) {
+				direction = "left";
+			} else if (exit === 2) {
+				direction = "straight ahead";
+			} else if (exit === 3) {
+				direction = "right";
+			} else if (exit === 4) {
+				direction = "back";
+			} else {
+				// For exits > 4, use the modifier if available
+				if (modifier?.includes("left")) {
+					direction = "left";
+				} else if (modifier?.includes("right")) {
+					direction = "right";
+				} else if (modifier?.includes("straight")) {
+					direction = "straight ahead";
+				}
+			}
+
+			if (direction) {
+				return `${direction}, ${exitWord} exit`;
+			} else {
+				return `${exitWord} exit`;
+			}
 		} else {
-			return `Take the roundabout`;
+			// Fallback if no exit number - this shouldn't happen but just in case
+			return `Roundabout ahead`;
 		}
 	}
 
@@ -2389,7 +2415,7 @@ function enhanceInstruction(maneuver, step) {
 	// Handle slight turns / bear
 	if (modifier === "slight left" || modifier === "slight right") {
 		const direction = modifier.includes("left") ? "left" : "right";
-		return `Bear ${direction}`;
+		return `Keep ${direction}`;
 	}
 
 	// Handle sharp turns
@@ -2646,16 +2672,22 @@ function checkVoiceGuidance() {
 			const prevStep = state.voiceSteps[previousStepIndex];
 			const prevLocation = [prevStep.location[1], prevStep.location[0]];
 			const distanceToPrev = calculateDistance(state.userPosition, prevLocation);
-			
+
 			// If we're 20-80m past the previous turn, announce the next turn immediately
 			const justPassedKey = `${closestStepIndex}-justpassed`;
-			if (distanceToPrev < 80 && distanceToPrev > 20 && 
-			    !state.announcedSteps.has(justPassedKey) &&
-			    distance < 500) { // Only if next turn is within 500m
+			if (
+				distanceToPrev < 80 &&
+				distanceToPrev > 20 &&
+				!state.announcedSteps.has(justPassedKey) &&
+				distance < 500
+			) {
+				// Only if next turn is within 500m
 				// Check that we're actually past it (behind us)
 				speakNavigation(step.enhancedInstruction, "high");
 				state.announcedSteps.add(justPassedKey);
-				console.log(`✓ Just passed turn, immediately announcing next: ${step.enhancedInstruction}`);
+				console.log(
+					`✓ Just passed turn, immediately announcing next: ${step.enhancedInstruction}`
+				);
 			}
 		}
 	}
