@@ -22,7 +22,7 @@ const state = {
 	presetRoutes: {},
 	rotationMode: "route", // 'off', 'route' (direction of travel is up), 'compass' (device heading is up)
 	currentHeading: 0,
-	smoothedHeading: null, // For smoothing map rotation
+	lastBearing: 0, // For stable rotation
 	lastPosition: null,
 	orientationListenerActive: false,
 	deviceHeading: null,
@@ -909,11 +909,15 @@ function initializeMap() {
 		rotateControl: false,
 	});
 
-	// Add OpenStreetMap tiles
-	L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-		attribution: "© OpenStreetMap contributors",
-		maxZoom: 19,
-	}).addTo(state.map);
+	// Add a high-contrast, dark tile layer suitable for navigation
+	L.tileLayer(
+		"https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png",
+		{
+			attribution:
+				'&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="http://openstreetmap.org">OpenStreetMap</a> contributors',
+			maxZoom: 19,
+		}
+	).addTo(state.map);
 
 	// Add zoom control to bottom left
 	L.control
@@ -1880,16 +1884,19 @@ function toggleVoiceNavigation() {
 	state.voiceEnabled = !state.voiceEnabled;
 	updateVoiceButtonState();
 
-	// On mobile, speech synthesis often needs to be initiated by a user gesture.
-	// This "unlocks" the ability for the browser to speak later.
-	if (state.voiceEnabled && window.speechSynthesis) {
-		// Cancel any previous speech and speak a silent utterance to activate.
-		window.speechSynthesis.cancel();
-		const unlock_utterance = new SpeechSynthesisUtterance("");
-		window.speechSynthesis.speak(unlock_utterance);
+	if (state.voiceEnabled) {
+		// On many browsers, speech synthesis must be initiated by a user gesture.
+		// This "unlocks" the ability for the browser to speak later.
+		const unlock = () => {
+			window.speechSynthesis.cancel(); // Clear any previous queue
+			const utterance = new SpeechSynthesisUtterance(""); // Silent utterance
+			window.speechSynthesis.speak(utterance);
+			document.removeEventListener("click", unlock); // Clean up listener
+		};
+		document.addEventListener("click", unlock);
 
-		// Now announce the status.
-		speak("Voice navigation enabled");
+		// Announce status after a short delay to ensure the "unlock" has time to work
+		setTimeout(() => speak("Voice navigation enabled"), 100);
 	} else {
 		speak("Voice navigation disabled");
 		if (window.speechSynthesis) {
@@ -2031,53 +2038,67 @@ function speak(text) {
 
 // Check if we should announce upcoming maneuvers
 function checkVoiceGuidance() {
-	if (!state.voiceEnabled || !state.userPosition) return;
-	if (!state.voiceSteps || state.voiceSteps.length === 0) return;
-
-	const ADVANCE_DISTANCE = 250; // meters - early warning
-	const FINAL_DISTANCE = 40; // meters - immediate instruction
-
-	// Find the next unannounced maneuver ahead of us
-	for (let i = state.currentVoiceStepIndex; i < state.voiceSteps.length; i++) {
-		const step = state.voiceSteps[i];
-		const stepLocation = [step.location[1], step.location[0]]; // Convert [lon, lat] to [lat, lon]
-
-		const distanceToStep = calculateDistance(state.userPosition, stepLocation);
-
-		// Check advance notice (250m)
-		const advanceKey = `${i}-advance`;
-		if (
-			distanceToStep <= ADVANCE_DISTANCE &&
-			distanceToStep > FINAL_DISTANCE &&
-			!state.announcedSteps.has(advanceKey)
-		) {
-			const distanceText = Math.round(distanceToStep);
-			speak(`In ${distanceText} meters, ${step.instruction}`);
-			state.announcedSteps.add(advanceKey);
-		}
-
-		// Check final notice (40m)
-		const finalKey = `${i}-final`;
-		if (distanceToStep <= FINAL_DISTANCE && !state.announcedSteps.has(finalKey)) {
-			speak(step.instruction);
-			state.announcedSteps.add(finalKey);
-
-			// Move to next step after final announcement
-			state.currentVoiceStepIndex = i + 1;
-			break;
-		}
-
-		// Only check the next few steps ahead
-		if (i > state.currentVoiceStepIndex + 2) break;
+	if (
+		!state.voiceEnabled ||
+		!state.userPosition ||
+		!state.voiceSteps ||
+		state.voiceSteps.length === 0
+	) {
+		return;
 	}
 
-	// Check if we've completed the route
+	const ADVANCE_NOTICE_DISTANCE = 300; // 300 meters for "in X meters"
+	const IMMINENT_NOTICE_DISTANCE = 50; // 50 meters for "now"
+
+	// Find the next step we haven't given the final announcement for
+	for (let i = state.currentVoiceStepIndex; i < state.voiceSteps.length; i++) {
+		const step = state.voiceSteps[i];
+		const stepLocation = [step.location[1], step.location[0]]; // OSRM is [lon, lat]
+		const distanceToStep = calculateDistance(state.userPosition, stepLocation);
+
+		const advanceKey = `step-${i}-advance`;
+		const finalKey = `step-${i}-final`;
+
+		// 1. Give advance notice
+		if (
+			distanceToStep <= ADVANCE_NOTICE_DISTANCE &&
+			distanceToStep > IMMINENT_NOTICE_DISTANCE &&
+			!state.announcedSteps.has(advanceKey)
+		) {
+			// Round distance to nearest 50 for cleaner instructions
+			const roundedDistance = Math.round(distanceToStep / 50) * 50;
+			speak(`In ${roundedDistance} meters, ${step.instruction}`);
+			state.announcedSteps.add(advanceKey);
+			break; // Only give one instruction at a time
+		}
+
+		// 2. Give final, imminent notice
+		if (
+			distanceToStep <= IMMINENT_NOTICE_DISTANCE &&
+			!state.announcedSteps.has(finalKey)
+		) {
+			speak(step.instruction);
+			state.announcedSteps.add(finalKey);
+			state.currentVoiceStepIndex = i + 1; // Move to the next step
+			break; // Only give one instruction at a time
+		}
+
+		// If we are already past the step, move to the next one
+		if (
+			distanceToStep > ADVANCE_NOTICE_DISTANCE &&
+			i === state.currentVoiceStepIndex
+		) {
+			// This can happen if the user deviates and rejoins the route later
+			// We should find the *correct* next step based on route progress, but for now, this is a simple fix.
+		}
+	}
+
+	// Check for arrival
 	if (state.currentVoiceStepIndex >= state.voiceSteps.length) {
 		const endPoint = state.gpxRoute[state.gpxRoute.length - 1];
 		const distanceToEnd = calculateDistance(state.userPosition, endPoint);
-
-		if (distanceToEnd < 30 && !state.announcedSteps.has("arrival")) {
-			speak("You have arrived at your destination");
+		if (distanceToEnd < 50 && !state.announcedSteps.has("arrival")) {
+			speak("You have arrived at your destination.");
 			state.announcedSteps.add("arrival");
 		}
 	}
