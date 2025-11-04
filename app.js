@@ -910,14 +910,12 @@ function initializeMap() {
 	});
 
 	// Add a high-contrast, dark tile layer suitable for navigation
-	L.tileLayer(
-		"https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png",
-		{
-			attribution:
-				'&copy; <a href="https://stadiamaps.com/">Stadia Maps</a>, &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="http://openstreetmap.org">OpenStreetMap</a> contributors',
-			maxZoom: 19,
-		}
-	).addTo(state.map);
+	L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+		attribution:
+			'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+		subdomains: "abcd",
+		maxZoom: 19,
+	}).addTo(state.map);
 
 	// Add zoom control to bottom left
 	L.control
