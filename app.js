@@ -23,6 +23,7 @@ const state = {
 	rotationMode: "route", // 'off', 'route' (direction of travel is up), 'compass' (device heading is up)
 	currentHeading: 0,
 	lastBearing: 0, // For stable rotation
+	smoothedHeading: 0, // Smoothed heading for rotation
 	lastPosition: null,
 	orientationListenerActive: false,
 	deviceHeading: null,
@@ -553,7 +554,9 @@ async function showRoutePreview(route) {
 		});
 
 		L.marker(points[0], { icon: startIcon }).addTo(state.previewMap);
-		L.marker(points[points.length - 1], { icon: endIcon }).addTo(state.previewMap);
+		L.marker(points[points.length - 1], { icon: endIcon }).addTo(
+			state.previewMap
+		);
 
 		state.previewMap.fitBounds(routePolyline.getBounds(), { padding: [40, 40] });
 	} catch (error) {
@@ -783,7 +786,8 @@ function loadRoutesForCentre(centre) {
 // Load Selected Route for Navigation
 async function loadSelectedRouteForNavigation(route) {
 	try {
-		const points = route.points || parseGPX(await (await fetch(`routes/${route.file}`)).text());
+		const points =
+			route.points || parseGPX(await (await fetch(`routes/${route.file}`)).text());
 
 		if (points.length === 0) {
 			throw new Error("No route points found");
@@ -1395,6 +1399,26 @@ function onDeviceOrientation(event) {
 	}
 }
 
+// Smooth heading transitions to reduce jerkiness
+function smoothHeading(newHeading, oldHeading, smoothingFactor = 0.3) {
+	// Handle wraparound at 0/360 degrees
+	let delta = newHeading - oldHeading;
+	
+	// Normalize delta to be between -180 and 180
+	while (delta > 180) delta -= 360;
+	while (delta < -180) delta += 360;
+	
+	// Apply smoothing
+	const smoothedDelta = delta * smoothingFactor;
+	let result = oldHeading + smoothedDelta;
+	
+	// Normalize result to 0-360
+	while (result < 0) result += 360;
+	while (result >= 360) result -= 360;
+	
+	return result;
+}
+
 // Apply map rotation from best available source: device heading, GPS bearing, or route bearing
 function applyMapRotation() {
 	if (!state.map || state.rotationMode === "off") {
@@ -1409,6 +1433,11 @@ function applyMapRotation() {
 			heading = state.deviceHeading;
 		} else if (typeof state.gpsHeading === "number" && !isNaN(state.gpsHeading)) {
 			heading = state.gpsHeading;
+		}
+		
+		// Apply light smoothing for compass mode (30% of the change)
+		if (heading !== null) {
+			heading = smoothHeading(heading, state.smoothedHeading, 0.3);
 		}
 	}
 
@@ -1427,8 +1456,8 @@ function applyMapRotation() {
 
 		if (activeRoute) {
 			const progress = findNearestPointOnRoute(state.userPosition, activeRoute);
-			// Look 30-50 meters ahead for a stable bearing, depending on speed
-			const lookAheadDistance = Math.max(30, state.simulationSpeed / 3.6); // Simple speed-based lookahead
+			// Look 50-80 meters ahead for a more stable bearing
+			const lookAheadDistance = Math.max(50, Math.min(80, state.simulationSpeed / 2));
 			const lookAheadPoint = getPointAhead(
 				activeRoute,
 				progress.index,
@@ -1448,12 +1477,19 @@ function applyMapRotation() {
 		) {
 			heading = state.gpsHeading;
 		}
+		
+		// Apply stronger smoothing for route mode (20% of the change for smoother transitions)
+		if (heading !== null) {
+			heading = smoothHeading(heading, state.smoothedHeading, 0.2);
+		}
 	}
 
 	if (heading === null || isNaN(heading)) {
 		return;
 	}
 
+	// Update smoothed heading for next iteration
+	state.smoothedHeading = heading;
 	state.currentHeading = heading;
 
 	// Rotate map so that heading points up
@@ -1480,8 +1516,8 @@ function setMapBearing(angleDeg) {
 
 	const rotationOptions = {
 		animate: true,
-		duration: 0.3, // Faster, smoother animation
-		easeLinearity: 0.8,
+		duration: 0.25, // Smooth animation duration
+		easeLinearity: 0.5, // Smoother easing
 	};
 
 	// In compass mode, rotate around the user's location (the anchor point)
