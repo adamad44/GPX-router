@@ -2266,13 +2266,13 @@ function updateVoiceButtonState() {
 function getOrdinal(num) {
 	const ordinals = {
 		1: "first",
-		2: "second", 
+		2: "second",
 		3: "third",
 		4: "fourth",
 		5: "fifth",
 		6: "sixth",
 		7: "seventh",
-		8: "eighth"
+		8: "eighth",
 	};
 	return ordinals[num] || `${num}th`;
 }
@@ -2300,7 +2300,7 @@ async function getOSRMRouteWithSteps(routePoints) {
 		.map((point) => `${point[1]},${point[0]}`) // [lat, lon] -> lon,lat
 		.join(";");
 
-	const url = `${OSRM_API}${coordsString}?overview=full&geometries=geojson&steps=true&annotations=true&alternatives=false`;
+	const url = `${OSRM_API}${coordsString}?overview=full&geometries=geojson&steps=true&annotations=true&alternatives=false&banner_instructions=true&voice_instructions=true`;
 
 	try {
 		const response = await fetch(url);
@@ -2309,103 +2309,82 @@ async function getOSRMRouteWithSteps(routePoints) {
 		if (data.code === "Ok" && data.routes && data.routes.length > 0) {
 			const route = data.routes[0];
 
-			// Extract and enhance navigation steps
+			// Extract navigation steps using OSRM's voice/banner instructions
 			const steps = [];
 
 			if (route.legs) {
 				for (const leg of route.legs) {
-					if (leg.steps) {
+					// Use voice_instructions if available (these are distances with text)
+					if (leg.voice_instructions && leg.voice_instructions.length > 0) {
+						console.log("✓ Found voice_instructions from OSRM");
+						for (const voiceInst of leg.voice_instructions) {
+							// Skip the very first "Head" instruction
+							if (voiceInst.announcement && !voiceInst.announcement.toLowerCase().startsWith('head')) {
+								steps.push({
+									instruction: voiceInst.announcement, // Pre-made voice instruction
+									location: [voiceInst.location[1], voiceInst.location[0]], // Convert to [lat, lon]
+									distance: voiceInst.distance_along_geometry || 0,
+									distanceFromStart: voiceInst.distance_along_geometry
+								});
+								console.log(`Voice: "${voiceInst.announcement}" at ${voiceInst.distance_along_geometry}m`);
+							}
+						}
+					} 
+					// Fallback: use banner_instructions or step instructions
+					else if (leg.steps) {
+						console.log("✓ Using step-based instructions");
 						for (const step of leg.steps) {
 							if (step.maneuver) {
 								const maneuver = step.maneuver;
 								
-								// Skip "depart" and "arrive" instructions - we'll handle these separately
+								// Skip depart/arrive
 								if (maneuver.type === "depart" || maneuver.type === "arrive") {
 									continue;
 								}
 
-								// Build instruction from OSRM data (like Google Maps)
+								// Get the best available instruction text
 								let instruction = "";
-								const type = maneuver.type;
-								const modifier = maneuver.modifier || "";
-								const roadName = step.name || "";
-								const exit = maneuver.exit;
-
-								// Build Google Maps-style instructions
-								if (type === "roundabout" || type === "rotary") {
-									if (exit) {
-										instruction = `At the roundabout, take the ${getOrdinal(exit)} exit`;
-										if (roadName) {
-											instruction += ` onto ${roadName}`;
-										}
+								
+								// Try banner instruction first (designed for display/voice)
+								if (step.bannerInstructions && step.bannerInstructions.length > 0) {
+									const banner = step.bannerInstructions[0];
+									if (banner.primary && banner.primary.text) {
+										instruction = banner.primary.text;
+									}
+								}
+								
+								// Fall back to maneuver instruction
+								if (!instruction && maneuver.instruction) {
+									instruction = maneuver.instruction;
+								}
+								
+								// Last resort: build from maneuver data
+								if (!instruction) {
+									const type = maneuver.type;
+									const modifier = maneuver.modifier || "";
+									
+									if (type === "roundabout" && maneuver.exit) {
+										instruction = `Take exit ${maneuver.exit}`;
+									} else if (type === "turn") {
+										instruction = modifier.includes("left") ? "Turn left" : 
+													 modifier.includes("right") ? "Turn right" : "Turn";
 									} else {
-										instruction = "Enter the roundabout";
+										instruction = `${type} ${modifier}`.trim();
 									}
-								} else if (type === "turn") {
-									if (modifier.includes("left")) {
-										instruction = "Turn left";
-									} else if (modifier.includes("right")) {
-										instruction = "Turn right";
-									} else {
-										instruction = "Turn";
-									}
-									if (roadName) {
-										instruction += ` onto ${roadName}`;
-									}
-								} else if (type === "fork") {
-									if (modifier.includes("left")) {
-										instruction = "Keep left";
-									} else if (modifier.includes("right")) {
-										instruction = "Keep right";
-									} else {
-										instruction = "Keep straight";
-									}
-									if (roadName) {
-										instruction += ` onto ${roadName}`;
-									}
-								} else if (type === "merge") {
-									instruction = "Merge";
-									if (modifier.includes("left")) {
-										instruction += " left";
-									} else if (modifier.includes("right")) {
-										instruction += " right";
-									}
-								} else if (type === "continue" || type === "new name") {
-									instruction = "Continue";
-									if (roadName) {
-										instruction += ` onto ${roadName}`;
-									} else {
-										instruction += " straight";
-									}
-								} else if (type === "on ramp" || type === "off ramp") {
-									instruction = type === "on ramp" ? "Take the ramp" : "Take the exit";
-									if (modifier.includes("left")) {
-										instruction = "Take the left " + (type === "on ramp" ? "ramp" : "exit");
-									} else if (modifier.includes("right")) {
-										instruction = "Take the right " + (type === "on ramp" ? "ramp" : "exit");
-									}
-								} else {
-									// Fallback: use OSRM's instruction or build basic one
-									instruction = maneuver.instruction || `Continue ${modifier}`.trim();
 								}
 
 								steps.push({
 									instruction: instruction,
 									location: maneuver.location, // [lon, lat]
-									distance: step.distance, // meters to next maneuver
+									distance: step.distance,
 									duration: step.duration,
 									type: maneuver.type,
 									modifier: maneuver.modifier,
 									name: step.name || "",
-									exit: maneuver.exit, // For roundabouts
+									exit: maneuver.exit
 								});
-
-								// Log what we're creating
-								console.log(
-									`Voice instruction: "${instruction}" (type: ${type}, modifier: ${modifier}, exit: ${
-										exit || "none"
-									})`
-								);
+								
+								console.log(`Step: "${instruction}" (type: ${maneuver.type})`);
 							}
 						}
 					}
