@@ -2305,9 +2305,21 @@ async function getOSRMRouteWithSteps(routePoints) {
 	try {
 		const response = await fetch(url);
 		const data = await response.json();
+		
+		console.log("OSRM Response code:", data.code);
+		console.log("OSRM has routes:", !!data.routes);
 
 		if (data.code === "Ok" && data.routes && data.routes.length > 0) {
 			const route = data.routes[0];
+			
+			console.log("Route legs:", route.legs?.length);
+			if (route.legs && route.legs[0]) {
+				console.log("First leg has voice_instructions:", !!route.legs[0].voice_instructions);
+				console.log("First leg has steps:", !!route.legs[0].steps);
+				if (route.legs[0].steps) {
+					console.log("Number of steps:", route.legs[0].steps.length);
+				}
+			}
 
 			// Extract navigation steps using OSRM's voice/banner instructions
 			const steps = [];
@@ -2319,24 +2331,30 @@ async function getOSRMRouteWithSteps(routePoints) {
 						console.log("✓ Found voice_instructions from OSRM");
 						for (const voiceInst of leg.voice_instructions) {
 							// Skip the very first "Head" instruction
-							if (voiceInst.announcement && !voiceInst.announcement.toLowerCase().startsWith('head')) {
+							if (
+								voiceInst.announcement &&
+								!voiceInst.announcement.toLowerCase().startsWith("head")
+							) {
 								steps.push({
 									instruction: voiceInst.announcement, // Pre-made voice instruction
 									location: [voiceInst.location[1], voiceInst.location[0]], // Convert to [lat, lon]
 									distance: voiceInst.distance_along_geometry || 0,
-									distanceFromStart: voiceInst.distance_along_geometry
+									distanceFromStart: voiceInst.distance_along_geometry,
 								});
-								console.log(`Voice: "${voiceInst.announcement}" at ${voiceInst.distance_along_geometry}m`);
+								console.log(
+									`Voice: "${voiceInst.announcement}" at ${voiceInst.distance_along_geometry}m`
+								);
 							}
 						}
-					} 
-					// Fallback: use banner_instructions or step instructions
-					else if (leg.steps) {
-						console.log("✓ Using step-based instructions");
+					}
+					
+					// Always check steps as fallback or if voice_instructions wasn't useful
+					if (leg.steps && steps.length === 0) {
+						console.log("✓ Using step-based instructions (voice_instructions not available or empty)");
 						for (const step of leg.steps) {
 							if (step.maneuver) {
 								const maneuver = step.maneuver;
-								
+
 								// Skip depart/arrive
 								if (maneuver.type === "depart" || maneuver.type === "arrive") {
 									continue;
@@ -2344,7 +2362,7 @@ async function getOSRMRouteWithSteps(routePoints) {
 
 								// Get the best available instruction text
 								let instruction = "";
-								
+
 								// Try banner instruction first (designed for display/voice)
 								if (step.bannerInstructions && step.bannerInstructions.length > 0) {
 									const banner = step.bannerInstructions[0];
@@ -2352,22 +2370,25 @@ async function getOSRMRouteWithSteps(routePoints) {
 										instruction = banner.primary.text;
 									}
 								}
-								
+
 								// Fall back to maneuver instruction
 								if (!instruction && maneuver.instruction) {
 									instruction = maneuver.instruction;
 								}
-								
+
 								// Last resort: build from maneuver data
 								if (!instruction) {
 									const type = maneuver.type;
 									const modifier = maneuver.modifier || "";
-									
+
 									if (type === "roundabout" && maneuver.exit) {
 										instruction = `Take exit ${maneuver.exit}`;
 									} else if (type === "turn") {
-										instruction = modifier.includes("left") ? "Turn left" : 
-													 modifier.includes("right") ? "Turn right" : "Turn";
+										instruction = modifier.includes("left")
+											? "Turn left"
+											: modifier.includes("right")
+											? "Turn right"
+											: "Turn";
 									} else {
 										instruction = `${type} ${modifier}`.trim();
 									}
@@ -2381,9 +2402,9 @@ async function getOSRMRouteWithSteps(routePoints) {
 									type: maneuver.type,
 									modifier: maneuver.modifier,
 									name: step.name || "",
-									exit: maneuver.exit
+									exit: maneuver.exit,
 								});
-								
+
 								console.log(`Step: "${instruction}" (type: ${maneuver.type})`);
 							}
 						}
