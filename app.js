@@ -338,10 +338,11 @@ function updateSimulation() {
 		}
 	}
 
-	// Update the map with the new simulated position
+	// Update the map with the new simulated position (supports {lat,lng} or [lat,lon])
+	const sim = getCoords(state.simulatedPosition);
 	processNewPosition(
-		state.simulatedPosition[0], // Use array index 0 for latitude
-		state.simulatedPosition[1], // Use array index 1 for longitude
+		sim.lat,
+		sim.lng,
 		10 // Fake accuracy
 	);
 }
@@ -2060,18 +2061,20 @@ function centerOnLatLngWithOffset(latlng, zoom, animationOptions = {}) {
 			: 500;
 
 	if (animate) {
+		// IMPORTANT: Do not set 'bearing' here. Let the current/ongoing rotation persist.
+		// Setting a fixed bearing here could overwrite a recent route-up rotation
+		// if both animations run close together.
 		map.easeTo({
 			center: newCenterLatLng, // Use the manually calculated center
 			zoom: targetZoom,
-			bearing: map.getBearing(),
 			duration: duration,
 			easing: (t) => t * (2 - t), // Ease out quad
 		});
 	} else {
+		// Likewise, avoid specifying bearing on instant jumps.
 		map.jumpTo({
 			center: newCenterLatLng,
 			zoom: targetZoom,
-			bearing: map.getBearing(),
 		});
 	}
 }
