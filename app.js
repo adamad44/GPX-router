@@ -254,7 +254,7 @@ function toggleSimulationControls() {
 			state.currentSimulatedSegmentIndex = 0;
 			state.distanceIntoSegment = 0;
 			// Fake a position update to place the marker at the start
-			processNewPosition(state.simulatedPosition[0], state.simulatedPosition[1]);
+			processNewPosition(state.simulatedPosition.lat, state.simulatedPosition.lng);
 		}
 	} else {
 		simControls.classList.add("hidden");
@@ -340,8 +340,8 @@ function updateSimulation() {
 
 	// Update the map with the new simulated position
 	processNewPosition(
-		state.simulatedPosition[0],
-		state.simulatedPosition[1],
+		state.simulatedPosition.lat,
+		state.simulatedPosition.lng,
 		10 // Fake accuracy
 	);
 }
@@ -518,10 +518,14 @@ async function showRoutePreview(route) {
 			state.previewMap.remove();
 		}
 
+		// Calculate center of route for initial view
+		const centerLat = points.reduce((sum, p) => sum + p.lat, 0) / points.length;
+		const centerLng = points.reduce((sum, p) => sum + p.lng, 0) / points.length;
+
 		state.previewMap = new maplibregl.Map({
 			container: "preview-map",
 			style: "https://tiles.openfreemap.org/styles/liberty",
-			center: [0, 0],
+			center: [centerLng, centerLat],
 			zoom: 12,
 			attributionControl: true,
 		});
@@ -1035,7 +1039,7 @@ function parseGPX(gpxText) {
 			const lat = parseFloat(trkpts[i].getAttribute("lat"));
 			const lon = parseFloat(trkpts[i].getAttribute("lon"));
 			if (!isNaN(lat) && !isNaN(lon)) {
-				points.push([lat, lon]);
+				points.push({ lat, lng: lon });
 			}
 		}
 	}
@@ -1047,7 +1051,7 @@ function parseGPX(gpxText) {
 			const lat = parseFloat(rtepts[i].getAttribute("lat"));
 			const lon = parseFloat(rtepts[i].getAttribute("lon"));
 			if (!isNaN(lat) && !isNaN(lon)) {
-				points.push([lat, lon]);
+				points.push({ lat, lng: lon });
 			}
 		}
 	}
@@ -1080,7 +1084,7 @@ function startNavigation() {
 		document.getElementById("simulation-controls").classList.remove("hidden");
 		if (!state.userPosition && state.gpxRoute.length > 0) {
 			state.simulatedPosition = state.gpxRoute[0];
-			processNewPosition(state.simulatedPosition[0], state.simulatedPosition[1]);
+			processNewPosition(state.simulatedPosition.lat, state.simulatedPosition.lng);
 		}
 	} else {
 		// Directly request location permission without showing custom modal
@@ -1807,7 +1811,7 @@ async function updateApproachRoute() {
 
 // Get Route from OSRM API
 async function getOSRMRoute(start, end) {
-	const url = `${OSRM_API}${start[1]},${start[0]};${end[1]},${end[0]}?overview=full&geometries=geojson&steps=true&annotations=true`;
+	const url = `${OSRM_API}${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson&steps=true&annotations=true`;
 
 	try {
 		const response = await fetch(url);
@@ -1817,16 +1821,8 @@ async function getOSRMRoute(start, end) {
 			const route = data.routes[0];
 			const coordinates = route.geometry.coordinates;
 
-			// Extract navigation steps for voice guidance
-			if (data.routes && data.routes.length > 0) {
-				const route = data.routes[0];
-				const coordinates = route.geometry.coordinates;
-
-				// Convert [lon, lat] to [lat, lon]
-				return coordinates.map((coord) => [coord[1], coord[0]]);
-			}
-			return null; // Convert [lon, lat] to [lat, lon]
-			return coordinates.map((coord) => [coord[1], coord[0]]);
+			// Convert [lon, lat] to {lat, lng} objects
+			return coordinates.map((coord) => ({ lat: coord[1], lng: coord[0] }));
 		}
 		return null;
 	} catch (error) {
@@ -2494,7 +2490,7 @@ async function getOSRMRouteWithSteps(routePoints) {
 
 	// Build coordinates string: lon,lat;lon,lat;...
 	const coordsString = sampledPoints
-		.map((point) => `${point[1]},${point[0]}`) // [lat, lon] -> lon,lat
+		.map((point) => `${point.lng},${point.lat}`) // {lat, lng} -> lng,lat
 		.join(";");
 
 	const url = `${OSRM_API}${coordsString}?overview=full&geometries=geojson&steps=true&annotations=true&alternatives=false&banner_instructions=true&voice_instructions=true`;
@@ -2537,7 +2533,7 @@ async function getOSRMRouteWithSteps(routePoints) {
 							) {
 								steps.push({
 									instruction: voiceInst.announcement, // Pre-made voice instruction
-									location: [voiceInst.location[1], voiceInst.location[0]], // Convert to [lat, lon]
+									location: { lat: voiceInst.location[1], lng: voiceInst.location[0] }, // Convert to {lat, lng}
 									distance: voiceInst.distance_along_geometry || 0,
 									distanceFromStart: voiceInst.distance_along_geometry,
 								});
@@ -2598,7 +2594,7 @@ async function getOSRMRouteWithSteps(routePoints) {
 
 								steps.push({
 									instruction: instruction,
-									location: maneuver.location, // [lon, lat]
+									location: { lat: maneuver.location[1], lng: maneuver.location[0] }, // Convert [lon, lat] to {lat, lng}
 									distance: step.distance,
 									duration: step.duration,
 									type: maneuver.type,
@@ -2617,7 +2613,10 @@ async function getOSRMRouteWithSteps(routePoints) {
 			console.log(`✓ Loaded ${steps.length} navigation instructions`);
 
 			return {
-				geometry: route.geometry.coordinates.map((coord) => [coord[1], coord[0]]),
+				geometry: route.geometry.coordinates.map((coord) => ({
+					lat: coord[1],
+					lng: coord[0],
+				})),
 				steps: steps,
 				distance: route.distance,
 				duration: route.duration,
