@@ -14,14 +14,14 @@
 		<meta name="format-detection" content="telephone=no" />
 		<meta name="theme-color" content="#111327" />
 		<title>GPX Navigator</title>
+
+		<!-- MapLibre GL JS - Modern vector tile mapping engine -->
 		<link
 			rel="stylesheet"
-			href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+			href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"
 		/>
-		<link
-			rel="stylesheet"
-			href="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.css"
-		/>
+		<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+
 		<link rel="stylesheet" href="styles.css" />
 	</head>
 	<body>
@@ -324,9 +324,6 @@
 			</div>
 		</div>
 
-		<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-		<script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script>
-		<script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
 		<script src="app.js"></script>
 	</body>
 </html>

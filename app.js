@@ -518,41 +518,70 @@ async function showRoutePreview(route) {
 			state.previewMap.remove();
 		}
 
-		state.previewMap = L.map("preview-map", {
-			zoomControl: true,
+		state.previewMap = new maplibregl.Map({
+			container: "preview-map",
+			style: "https://tiles.openfreemap.org/styles/liberty",
+			center: [0, 0],
+			zoom: 12,
 			attributionControl: true,
 		});
 
-		L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-			attribution:
-				'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-		}).addTo(state.previewMap);
+		state.previewMap.on("load", () => {
+			// Add route polyline as GeoJSON layer
+			const routeGeoJSON = {
+				type: "Feature",
+				geometry: {
+					type: "LineString",
+					coordinates: points.map((p) => [p.lng, p.lat]),
+				},
+			};
 
-		const routePolyline = L.polyline(points, {
-			color: "#3b82f6",
-			weight: 5,
-		}).addTo(state.previewMap);
+			state.previewMap.addSource("preview-route", {
+				type: "geojson",
+				data: routeGeoJSON,
+			});
 
-		const startIcon = L.divIcon({
-			className: "custom-marker",
-			html: `<div style="background: #28a745; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"></div>`,
-			iconSize: [24, 24],
-			iconAnchor: [12, 12],
+			state.previewMap.addLayer({
+				id: "preview-route-line",
+				type: "line",
+				source: "preview-route",
+				paint: {
+					"line-color": "#3b82f6",
+					"line-width": 5,
+				},
+			});
+
+			// Add start marker
+			const startEl = document.createElement("div");
+			startEl.style.width = "24px";
+			startEl.style.height = "24px";
+			startEl.style.background = "#28a745";
+			startEl.style.borderRadius = "50%";
+			startEl.style.border = "3px solid white";
+			startEl.style.boxShadow = "0 2px 8px rgba(0,0,0,0.3)";
+
+			new maplibregl.Marker({ element: startEl })
+				.setLngLat([points[0].lng, points[0].lat])
+				.addTo(state.previewMap);
+
+			// Add end marker
+			const endEl = document.createElement("div");
+			endEl.style.width = "24px";
+			endEl.style.height = "24px";
+			endEl.style.background = "#dc3545";
+			endEl.style.borderRadius = "50%";
+			endEl.style.border = "3px solid white";
+			endEl.style.boxShadow = "0 2px 8px rgba(0,0,0,0.3)";
+
+			new maplibregl.Marker({ element: endEl })
+				.setLngLat([points[points.length - 1].lng, points[points.length - 1].lat])
+				.addTo(state.previewMap);
+
+			// Fit bounds to route
+			const bounds = new maplibregl.LngLatBounds();
+			points.forEach((p) => bounds.extend([p.lng, p.lat]));
+			state.previewMap.fitBounds(bounds, { padding: 40 });
 		});
-
-		const endIcon = L.divIcon({
-			className: "custom-marker",
-			html: `<div style="background: #dc3545; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"></div>`,
-			iconSize: [24, 24],
-			iconAnchor: [12, 12],
-		});
-
-		L.marker(points[0], { icon: startIcon }).addTo(state.previewMap);
-		L.marker(points[points.length - 1], { icon: endIcon }).addTo(
-			state.previewMap
-		);
-
-		state.previewMap.fitBounds(routePolyline.getBounds(), { padding: [40, 40] });
 	} catch (error) {
 		console.error("Error showing route preview:", error);
 		alert(`Failed to load route preview for ${route.name}.`);
@@ -1125,38 +1154,63 @@ function showPermissionDeniedMessage() {
 	}
 }
 
-// Initialize Leaflet Map
+// Initialize MapLibre GL JS Map
 function initializeMap() {
-	state.map = L.map("map", {
-		zoomControl: false,
-		attributionControl: true,
+	state.map = new maplibregl.Map({
+		container: "map",
+		style: "https://tiles.openfreemap.org/styles/liberty",
+		center: [0, 0],
+		zoom: 3,
 		minZoom: 3,
 		maxZoom: 19,
-		rotate: true,
 		bearing: 0,
-		touchRotate: true,
-		rotateControl: false,
+		pitch: 0,
+		attributionControl: true,
 	});
 
-	// Add OpenStreetMap tile layer optimized for navigation
-	L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-		attribution:
-			'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-		maxZoom: 19,
-	}).addTo(state.map);
+	// Add navigation controls (zoom +/- buttons) to bottom left
+	state.map.addControl(
+		new maplibregl.NavigationControl({
+			showCompass: false,
+			visualizePitch: false,
+		}),
+		"bottom-left"
+	);
 
-	// Add zoom control to bottom left
-	L.control
-		.zoom({
-			position: "bottomleft",
-		})
-		.addTo(state.map);
+	// Wait for map to load before setting bounds and adding arrow icon
+	state.map.on("load", () => {
+		// Create arrow icon for route decorations
+		const canvas = document.createElement("canvas");
+		canvas.width = 24;
+		canvas.height = 24;
+		const ctx = canvas.getContext("2d");
 
-	// Set initial view to GPX route
-	if (state.gpxRoute.length > 0) {
-		const bounds = L.latLngBounds(state.gpxRoute);
-		state.map.fitBounds(bounds, { padding: [50, 50] });
-	}
+		// Draw arrow pointing up
+		ctx.fillStyle = "#3b82f6";
+		ctx.beginPath();
+		ctx.moveTo(12, 2); // Top point
+		ctx.lineTo(20, 22); // Bottom right
+		ctx.lineTo(12, 18); // Bottom center
+		ctx.lineTo(4, 22); // Bottom left
+		ctx.closePath();
+		ctx.fill();
+
+		// Add image to map
+		state.map.addImage("arrow", {
+			width: 24,
+			height: 24,
+			data: ctx.getImageData(0, 0, 24, 24).data,
+		});
+
+		// Set initial view to GPX route
+		if (state.gpxRoute.length > 0) {
+			const bounds = new maplibregl.LngLatBounds();
+			state.gpxRoute.forEach((point) => {
+				bounds.extend([point.lng, point.lat]);
+			});
+			state.map.fitBounds(bounds, { padding: 50 });
+		}
+	});
 
 	// Disable auto-center when user manually pans the map
 	state.map.on("dragstart", () => {
@@ -1185,24 +1239,36 @@ function addRouteMarkers() {
 	const startPoint = state.gpxRoute[0];
 	const endPoint = state.gpxRoute[state.gpxRoute.length - 1];
 
-	// Custom start icon (green)
-	const startIcon = L.divIcon({
-		className: "custom-marker",
-		html: `<div style="background: #28a745; width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"></div>`,
-		iconSize: [30, 30],
-		iconAnchor: [15, 30],
-	});
+	// Custom start marker (green pin)
+	const startEl = document.createElement("div");
+	startEl.style.width = "30px";
+	startEl.style.height = "30px";
+	startEl.style.background = "#28a745";
+	startEl.style.borderRadius = "50% 50% 50% 0";
+	startEl.style.transform = "rotate(-45deg)";
+	startEl.style.border = "3px solid white";
+	startEl.style.boxShadow = "0 2px 8px rgba(0,0,0,0.3)";
 
-	// Custom end icon (red)
-	const endIcon = L.divIcon({
-		className: "custom-marker",
-		html: `<div style="background: #dc3545; width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"></div>`,
-		iconSize: [30, 30],
-		iconAnchor: [15, 30],
-	});
+	state.startMarker = new maplibregl.Marker({
+		element: startEl,
+		anchor: "bottom",
+	})
+		.setLngLat([startPoint.lng, startPoint.lat])
+		.addTo(state.map);
 
-	state.startMarker = L.marker(startPoint, { icon: startIcon }).addTo(state.map);
-	state.endMarker = L.marker(endPoint, { icon: endIcon }).addTo(state.map);
+	// Custom end marker (red pin)
+	const endEl = document.createElement("div");
+	endEl.style.width = "30px";
+	endEl.style.height = "30px";
+	endEl.style.background = "#dc3545";
+	endEl.style.borderRadius = "50% 50% 50% 0";
+	endEl.style.transform = "rotate(-45deg)";
+	endEl.style.border = "3px solid white";
+	endEl.style.boxShadow = "0 2px 8px rgba(0,0,0,0.3)";
+
+	state.endMarker = new maplibregl.Marker({ element: endEl, anchor: "bottom" })
+		.setLngLat([endPoint.lng, endPoint.lat])
+		.addTo(state.map);
 }
 
 // Start GPS Tracking
@@ -1297,9 +1363,8 @@ function processNewPosition(latitude, longitude, accuracy, heading) {
 	if (state.autoCenterEnabled) {
 		// Use faster centering in compass mode for more responsive tracking
 		const duration = state.rotationMode === "compass" ? 0.15 : 0.5;
-		centerOnLatLngWithOffset([latitude, longitude], state.map.getZoom() || 16, {
+		centerOnLatLngWithOffset([longitude, latitude], state.map.getZoom() || 16, {
 			duration: duration,
-			easeLinearity: 0.5,
 		});
 	}
 
@@ -1506,25 +1571,21 @@ function getPointAhead(route, startIndex, distanceAhead) {
 	return route[route.length - 1]; // Return last point if not found
 }
 
-// Set map bearing using plugin if available
+// Set map bearing with smooth animation
 function setMapBearing(angleDeg) {
 	if (!state.map) return;
 
-	// Route mode needs faster, more responsive rotation
-	const duration = state.rotationMode === "route" ? 0.1 : 0.2;
-
-	const rotationOptions = {
-		animate: true,
-		duration: duration, // Faster in route mode
-		easeLinearity: 0.5, // Linear easing for predictable rotation
-	};
-
-	// In compass mode, rotate around the user's location (the anchor point)
-	if (state.rotationMode === "compass" && state.userPosition) {
-		const anchor = state.map.latLngToContainerPoint(state.userPosition);
-		state.map.setBearing(angleDeg, { ...rotationOptions, anchor });
+	// Route mode needs instant updates, compass mode gets smooth transitions
+	if (state.rotationMode === "route") {
+		// Instant rotation for route mode
+		state.map.jumpTo({ bearing: angleDeg });
 	} else {
-		state.map.setBearing(angleDeg, rotationOptions);
+		// Smooth rotation for compass mode (200ms)
+		state.map.easeTo({
+			bearing: angleDeg,
+			duration: 200,
+			easing: (t) => t, // Linear easing
+		});
 	}
 }
 
@@ -1548,47 +1609,107 @@ function updateUserMarker(lat, lon, accuracy) {
 	}
 
 	// Get the current map bearing to counter-rotate the arrow
-	let mapBearing = 0;
-	if (state.map) {
-		if (typeof state.map.getBearing === "function") {
-			mapBearing = state.map.getBearing();
-		}
-	}
+	const mapBearing = state.map ? state.map.getBearing() : 0;
 
 	// Counter-rotate the arrow so it points true north relative to the screen
 	// When map rotates clockwise, arrow needs to rotate counter-clockwise by the same amount
 	const arrowRotation = displayHeading - mapBearing;
 
-	// Create custom user marker icon with heading indicator
-	const userIcon = L.divIcon({
-		className: "user-marker-container",
-		iconSize: [40, 40],
-		iconAnchor: [20, 20],
-		html: `
+	if (!state.userMarker) {
+		// Create custom user marker element
+		const markerEl = document.createElement("div");
+		markerEl.className = "user-marker-container";
+		markerEl.style.width = "40px";
+		markerEl.style.height = "40px";
+		markerEl.innerHTML = `
 			<div class="user-marker-wrapper" style="transform: rotate(${arrowRotation}deg)">
 				<div class="user-marker-arrow"></div>
 				<div class="user-marker-dot"></div>
 			</div>
-		`,
-	});
+		`;
 
-	if (!state.userMarker) {
-		state.userMarker = L.marker([lat, lon], {
-			icon: userIcon,
-			rotationAngle: 0,
-			rotationOrigin: "center",
-		}).addTo(state.map);
-		state.userAccuracyCircle = L.circle([lat, lon], {
-			radius: accuracy,
-			className: "user-accuracy",
-			interactive: false,
-		}).addTo(state.map);
+		state.userMarker = new maplibregl.Marker({ element: markerEl })
+			.setLngLat([lon, lat])
+			.addTo(state.map);
+
+		// Create accuracy circle as GeoJSON source
+		if (!state.map.getSource("user-accuracy")) {
+			state.map.addSource("user-accuracy", {
+				type: "geojson",
+				data: {
+					type: "Feature",
+					geometry: {
+						type: "Point",
+						coordinates: [lon, lat],
+					},
+				},
+			});
+
+			state.map.addLayer({
+				id: "user-accuracy-circle",
+				type: "circle",
+				source: "user-accuracy",
+				paint: {
+					"circle-radius": {
+						stops: [
+							[0, 0],
+							[20, metersToPixelsAtMaxZoom(accuracy, lat)],
+						],
+						base: 2,
+					},
+					"circle-color": "#3b82f6",
+					"circle-opacity": 0.1,
+					"circle-stroke-width": 1,
+					"circle-stroke-color": "#3b82f6",
+					"circle-stroke-opacity": 0.3,
+				},
+			});
+		}
+
+		state.userAccuracyCircle = { lat, lon, accuracy };
 	} else {
-		state.userMarker.setLatLng([lat, lon]);
-		state.userMarker.setIcon(userIcon);
-		state.userAccuracyCircle.setLatLng([lat, lon]);
-		state.userAccuracyCircle.setRadius(accuracy);
+		// Update marker position and rotation
+		state.userMarker.setLngLat([lon, lat]);
+		const markerEl = state.userMarker.getElement();
+		const wrapper = markerEl.querySelector(".user-marker-wrapper");
+		if (wrapper) {
+			wrapper.style.transform = `rotate(${arrowRotation}deg)`;
+		}
+
+		// Update accuracy circle
+		if (state.map.getSource("user-accuracy")) {
+			state.map.getSource("user-accuracy").setData({
+				type: "Feature",
+				geometry: {
+					type: "Point",
+					coordinates: [lon, lat],
+				},
+			});
+
+			// Update radius
+			state.map.setPaintProperty("user-accuracy-circle", "circle-radius", {
+				stops: [
+					[0, 0],
+					[20, metersToPixelsAtMaxZoom(accuracy, lat)],
+				],
+				base: 2,
+			});
+		}
+
+		state.userAccuracyCircle = { lat, lon, accuracy };
 	}
+}
+
+// Helper function to convert meters to pixels at max zoom for circle radius
+function metersToPixelsAtMaxZoom(meters, latitude) {
+	const earthCircumference = 40075017;
+	const latitudeRadians = (latitude * Math.PI) / 180;
+	return (
+		(meters / earthCircumference) *
+		Math.cos(latitudeRadians) *
+		Math.pow(2, 20) *
+		512
+	);
 }
 
 // Update Navigation Logic
@@ -1786,136 +1907,198 @@ function getLookAheadRoute(route, startIndex) {
 
 // Display Route on Map
 function displayRoute(route, color, opacity = 0.8, weight = 6) {
-	// Remove existing visible route and decorator
-	if (state.visibleRoutePolyline) {
-		state.map.removeLayer(state.visibleRoutePolyline);
+	// Remove existing visible route layers
+	if (state.map.getLayer("visible-route-line")) {
+		state.map.removeLayer("visible-route-line");
 	}
-	if (state.visibleRouteDecorator) {
-		state.map.removeLayer(state.visibleRouteDecorator);
+	if (state.map.getLayer("visible-route-arrows")) {
+		state.map.removeLayer("visible-route-arrows");
+	}
+	if (state.map.getSource("visible-route")) {
+		state.map.removeSource("visible-route");
 	}
 
 	// Add new route
 	if (route.length > 0) {
-		state.visibleRoutePolyline = L.polyline(route, {
-			color: color,
-			weight: weight,
-			opacity: opacity,
-			lineJoin: "round",
-			lineCap: "round",
-		}).addTo(state.map);
+		const routeGeoJSON = {
+			type: "Feature",
+			geometry: {
+				type: "LineString",
+				coordinates: route.map((p) => [p.lng, p.lat]),
+			},
+		};
 
-		// Add directional arrows to the route
-		state.visibleRouteDecorator = L.polylineDecorator(
-			state.visibleRoutePolyline,
-			{
-				patterns: [
-					{
-						offset: 50,
-						repeat: 100,
-						symbol: L.Symbol.arrowHead({
-							pixelSize: 12,
-							polygon: false,
-							pathOptions: {
-								color: color,
-								weight: 3,
-								opacity: opacity,
-								stroke: true,
-							},
-						}),
-					},
-				],
-			}
-		).addTo(state.map);
+		state.map.addSource("visible-route", {
+			type: "geojson",
+			data: routeGeoJSON,
+		});
+
+		// Add route line
+		state.map.addLayer({
+			id: "visible-route-line",
+			type: "line",
+			source: "visible-route",
+			paint: {
+				"line-color": color,
+				"line-width": weight,
+				"line-opacity": opacity,
+			},
+			layout: {
+				"line-join": "round",
+				"line-cap": "round",
+			},
+		});
+
+		// Add directional arrows using symbol layer
+		state.map.addLayer({
+			id: "visible-route-arrows",
+			type: "symbol",
+			source: "visible-route",
+			layout: {
+				"symbol-placement": "line",
+				"symbol-spacing": 100,
+				"icon-image": "arrow",
+				"icon-size": 0.5,
+				"icon-rotation-alignment": "map",
+				"icon-allow-overlap": true,
+				"icon-ignore-placement": true,
+			},
+			paint: {
+				"icon-opacity": opacity,
+			},
+		});
+
+		state.visibleRoutePolyline = true; // Marker for cleanup
 	}
 }
 
 // Display Preview Route on Map (transparent)
 function displayPreviewRoute(route) {
-	// Remove existing preview route and decorator
-	if (state.previewRoutePolyline) {
-		state.map.removeLayer(state.previewRoutePolyline);
+	// Remove existing preview route layers
+	if (state.map.getLayer("preview-route-line")) {
+		state.map.removeLayer("preview-route-line");
 	}
-	if (state.previewRouteDecorator) {
-		state.map.removeLayer(state.previewRouteDecorator);
+	if (state.map.getLayer("preview-route-arrows")) {
+		state.map.removeLayer("preview-route-arrows");
+	}
+	if (state.map.getSource("preview-route-src")) {
+		state.map.removeSource("preview-route-src");
 	}
 
 	// Add new preview route
 	if (route.length > 0) {
-		state.previewRoutePolyline = L.polyline(route, {
-			color: "#7C3AED",
-			weight: 6,
-			opacity: 0.8,
-			lineJoin: "round",
-			lineCap: "round",
-		}).addTo(state.map);
+		const routeGeoJSON = {
+			type: "Feature",
+			geometry: {
+				type: "LineString",
+				coordinates: route.map((p) => [p.lng, p.lat]),
+			},
+		};
 
-		// Add directional arrows to the preview route
-		state.previewRouteDecorator = L.polylineDecorator(
-			state.previewRoutePolyline,
-			{
-				patterns: [
-					{
-						offset: 50,
-						repeat: 100,
-						symbol: L.Symbol.arrowHead({
-							pixelSize: 12,
-							polygon: false,
-							pathOptions: {
-								color: "#7C3AED",
-								weight: 3,
-								opacity: 0.8,
-								stroke: true,
-							},
-						}),
-					},
-				],
-			}
-		).addTo(state.map);
+		state.map.addSource("preview-route-src", {
+			type: "geojson",
+			data: routeGeoJSON,
+		});
+
+		state.map.addLayer({
+			id: "preview-route-line",
+			type: "line",
+			source: "preview-route-src",
+			paint: {
+				"line-color": "#7C3AED",
+				"line-width": 6,
+				"line-opacity": 0.8,
+			},
+			layout: {
+				"line-join": "round",
+				"line-cap": "round",
+			},
+		});
+
+		state.map.addLayer({
+			id: "preview-route-arrows",
+			type: "symbol",
+			source: "preview-route-src",
+			layout: {
+				"symbol-placement": "line",
+				"symbol-spacing": 100,
+				"icon-image": "arrow",
+				"icon-size": 0.5,
+				"icon-rotation-alignment": "map",
+				"icon-allow-overlap": true,
+				"icon-ignore-placement": true,
+			},
+			paint: {
+				"icon-opacity": 0.8,
+			},
+		});
+
+		state.previewRoutePolyline = true;
 	}
 }
 
 // Display Preview Route for Approach (solid, blue)
 function displayPreviewRouteApproach(route) {
-	// Remove existing preview route and decorator
-	if (state.previewRoutePolyline) {
-		state.map.removeLayer(state.previewRoutePolyline);
+	// Remove existing preview route layers
+	if (state.map.getLayer("preview-route-line")) {
+		state.map.removeLayer("preview-route-line");
 	}
-	if (state.previewRouteDecorator) {
-		state.map.removeLayer(state.previewRouteDecorator);
+	if (state.map.getLayer("preview-route-arrows")) {
+		state.map.removeLayer("preview-route-arrows");
+	}
+	if (state.map.getSource("preview-route-src")) {
+		state.map.removeSource("preview-route-src");
 	}
 
 	// Add new preview route
 	if (route.length > 0) {
-		state.previewRoutePolyline = L.polyline(route, {
-			color: "#4285F4",
-			weight: 6,
-			opacity: 0.8,
-			lineJoin: "round",
-			lineCap: "round",
-		}).addTo(state.map);
+		const routeGeoJSON = {
+			type: "Feature",
+			geometry: {
+				type: "LineString",
+				coordinates: route.map((p) => [p.lng, p.lat]),
+			},
+		};
 
-		// Add directional arrows to the approach route
-		state.previewRouteDecorator = L.polylineDecorator(
-			state.previewRoutePolyline,
-			{
-				patterns: [
-					{
-						offset: 50,
-						repeat: 100,
-						symbol: L.Symbol.arrowHead({
-							pixelSize: 12,
-							polygon: false,
-							pathOptions: {
-								color: "#4285F4",
-								weight: 3,
-								opacity: 0.8,
-								stroke: true,
-							},
-						}),
-					},
-				],
-			}
-		).addTo(state.map);
+		state.map.addSource("preview-route-src", {
+			type: "geojson",
+			data: routeGeoJSON,
+		});
+
+		state.map.addLayer({
+			id: "preview-route-line",
+			type: "line",
+			source: "preview-route-src",
+			paint: {
+				"line-color": "#4285F4",
+				"line-width": 6,
+				"line-opacity": 0.8,
+			},
+			layout: {
+				"line-join": "round",
+				"line-cap": "round",
+			},
+		});
+
+		state.map.addLayer({
+			id: "preview-route-arrows",
+			type: "symbol",
+			source: "preview-route-src",
+			layout: {
+				"symbol-placement": "line",
+				"symbol-spacing": 100,
+				"icon-image": "arrow",
+				"icon-size": 0.5,
+				"icon-rotation-alignment": "map",
+				"icon-allow-overlap": true,
+				"icon-ignore-placement": true,
+			},
+			paint: {
+				"icon-opacity": 0.8,
+			},
+		});
+
+		state.previewRoutePolyline = true;
 	}
 }
 
@@ -1996,39 +2179,48 @@ function centerOnLatLngWithOffset(latlng, zoom, animationOptions = {}) {
 	if (!state.map || !latlng) return;
 	const map = state.map;
 	const targetZoom = zoom ?? map.getZoom() ?? 16;
-	const mapSize = map.getSize();
-	const offsetY = mapSize.y * USER_VIEW_OFFSET_RATIO;
 
-	// Get the current map bearing (rotation angle in degrees)
-	const bearing = map.getBearing ? map.getBearing() : 0;
-	const bearingRad = (bearing * Math.PI) / 180;
+	// Get map container size
+	const canvas = map.getCanvas();
+	const mapHeight = canvas.clientHeight;
 
-	// Project the GPS position to pixel coordinates at the target zoom
-	const projected = map.project(latlng, targetZoom);
+	// Calculate offset in pixels (40% from bottom = 60% from top)
+	const offsetPixels = mapHeight * USER_VIEW_OFFSET_RATIO;
 
-	// Apply offset accounting for map rotation
-	// When map is rotated, we need to rotate the offset vector as well
-	// Offset should always be "down" in screen space (positive Y in screen coordinates)
-	const offsetX = offsetY * Math.sin(bearingRad);
-	const offsetY_rotated = offsetY * Math.cos(bearingRad);
+	// Get current bearing
+	const bearing = map.getBearing();
 
-	const offsetPoint = L.point(
-		projected.x - offsetX,
-		projected.y - offsetY_rotated
-	);
-	const centerLatLng = map.unproject(offsetPoint, targetZoom);
+	// Default animation settings
+	const animate = animationOptions.animate !== false;
+	const duration =
+		animationOptions.duration !== undefined
+			? animationOptions.duration * 1000
+			: 500;
 
-	// Default animation settings (can be overridden by animationOptions)
-	const defaultAnimation = {
-		animate: true,
-		duration: 0.5,
-		easeLinearity: 0.2,
-	};
+	if (animate) {
+		// Use easeTo for smooth animation - compass mode uses 150ms, manual uses 500ms
+		map.easeTo({
+			center: latlng,
+			zoom: targetZoom,
+			bearing: bearing, // Maintain current bearing
+			offset: [0, -offsetPixels], // Negative Y moves map down, user marker appears lower
+			duration: duration,
+			easing: (t) => t * (2 - t), // Ease out quad
+		});
+	} else {
+		// Instant jump
+		map.jumpTo({
+			center: latlng,
+			zoom: targetZoom,
+			bearing: bearing,
+		});
 
-	map.setView(centerLatLng, targetZoom, {
-		...defaultAnimation,
-		...animationOptions,
-	});
+		// Apply offset after jump
+		const point = map.project(latlng);
+		point.y -= offsetPixels;
+		const newCenter = map.unproject(point);
+		map.jumpTo({ center: newCenter });
+	}
 }
 
 // Center Map on User (also acts as auto-follow toggle)
@@ -2043,10 +2235,14 @@ function centerMapOnUser() {
 		state.autoCenterEnabled = true;
 		updateCenterButtonState();
 		// Use zoom level 17 for car navigation - appropriate for seeing road details
-		centerOnLatLngWithOffset(state.userPosition, 17, {
-			animate: true,
-			duration: 0.5,
-		});
+		centerOnLatLngWithOffset(
+			[state.userPosition.lng, state.userPosition.lat],
+			17,
+			{
+				animate: true,
+				duration: 0.5,
+			}
+		);
 	}
 }
 
