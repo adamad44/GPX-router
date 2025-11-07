@@ -44,13 +44,17 @@ const state = {
 	simulatedPosition: null,
 	currentSimulatedSegmentIndex: 0,
 	distanceIntoSegment: 0, // in meters
+	lastRotationUpdateTime: 0, // throttle rotation updates
 };
 
 // Constants
 const LOOK_AHEAD_DISTANCE = 1609.34; // 1 mile in meters
 const START_POINT_THRESHOLD = 50; // 50 meters to consider "reached start"
 const OSRM_API = "https://router.project-osrm.org/route/v1/driving/";
-const USER_VIEW_OFFSET_RATIO = 0.4; // keep user marker near bottom of screen (increased from 0.28)
+// Ratio controlling vertical offset of the user's position when auto-centering.
+// 0.5 means exact center. Smaller values push the user marker further toward the bottom.
+// Adjusted from 0.4 to 0.25 to keep the marker closer to bottom-middle for better look-ahead visibility.
+const USER_VIEW_OFFSET_RATIO = 0.25;
 
 // Test Centres Configuration
 const TEST_CENTRES = {
@@ -1528,27 +1532,15 @@ function applyMapRotation() {
 			heading = smoothHeading(heading, state.smoothedHeading, 0.3);
 		}
 	} else if (state.rotationMode === "route" && state.userPosition) {
-		// --- REWRITTEN ROUTE MODE LOGIC ---
+		// Route-up: derive heading from route geometry with a short lookahead for stability
 		let activeRoute = state.hasReachedStart
 			? state.gpxRoute
 			: state.approachRoute;
 		if (activeRoute && activeRoute.length > 1) {
 			const progress = findNearestPointOnRoute(state.userPosition, activeRoute);
-
-			// Ensure we are not at the very end of the route
-			if (progress.index < activeRoute.length - 1) {
-				// Calculate bearing of the current segment for a stable heading
-				const currentSegmentStart = activeRoute[progress.index];
-				const currentSegmentEnd = activeRoute[progress.index + 1];
-				heading = calculateBearing(currentSegmentStart, currentSegmentEnd);
-			} else {
-				// If at the last point, use the bearing of the previous segment
-				const prevSegmentStart = activeRoute[progress.index - 1];
-				const prevSegmentEnd = activeRoute[progress.index];
-				heading = calculateBearing(prevSegmentStart, prevSegmentEnd);
-			}
+			// Compute a lookahead-based bearing (e.g., 40m ahead) for smoother orientation
+			heading = computeRouteHeading(activeRoute, progress.index, 40);
 		}
-
 		// Fallback to GPS heading if route-based heading fails
 		if (
 			heading === null &&
@@ -1557,11 +1549,22 @@ function applyMapRotation() {
 		) {
 			heading = state.gpsHeading;
 		}
+		// Apply smoothing for route mode as well (reduces abrupt jumps at bends)
+		if (heading !== null) {
+			heading = smoothHeading(heading, state.smoothedHeading || heading, 0.25);
+		}
 	}
 
 	if (heading === null || isNaN(heading)) {
 		return;
 	}
+
+	// Throttle rotation updates to ~6 FPS to avoid animation queue saturation
+	const now = performance.now ? performance.now() : Date.now();
+	if (now - state.lastRotationUpdateTime < 150) {
+		return; // Skip if too soon
+	}
+	state.lastRotationUpdateTime = now;
 
 	state.smoothedHeading = heading;
 	state.currentHeading = heading;
@@ -1580,6 +1583,33 @@ function getPointAhead(route, startIndex, distanceAhead) {
 		accumulatedDistance += segmentDistance;
 	}
 	return route[route.length - 1]; // Return last point if not found
+}
+
+// Compute a stable heading looking "distanceAheadMeters" along the route.
+// Falls back to immediate next segment or previous segment if near the end.
+function computeRouteHeading(route, currentIndex, distanceAheadMeters = 40) {
+	if (!route || route.length < 2) return null;
+	// Clamp index
+	currentIndex = Math.max(0, Math.min(currentIndex, route.length - 1));
+
+	// If at or beyond penultimate point, use previous segment
+	if (currentIndex >= route.length - 2) {
+		return calculateBearing(route[route.length - 2], route[route.length - 1]);
+	}
+
+	// Try lookahead point
+	const startPoint = route[currentIndex];
+	const lookPoint = getPointAhead(route, currentIndex, distanceAheadMeters);
+	if (startPoint && lookPoint) {
+		return calculateBearing(startPoint, lookPoint);
+	}
+
+	// Fallback to next segment
+	if (route[currentIndex + 1]) {
+		return calculateBearing(route[currentIndex], route[currentIndex + 1]);
+	}
+
+	return null;
 }
 
 // Set map bearing with smooth animation
