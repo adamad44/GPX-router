@@ -1516,49 +1516,35 @@ function applyMapRotation() {
 
 	let heading = null;
 
-	// Compass mode: prioritize device orientation
 	if (state.rotationMode === "compass") {
+		// Compass mode logic remains the same
 		if (typeof state.deviceHeading === "number" && !isNaN(state.deviceHeading)) {
 			heading = state.deviceHeading;
 		} else if (typeof state.gpsHeading === "number" && !isNaN(state.gpsHeading)) {
 			heading = state.gpsHeading;
 		}
-
-		// Apply light smoothing for compass mode (30% of the change)
 		if (heading !== null) {
 			heading = smoothHeading(heading, state.smoothedHeading, 0.3);
 		}
-	}
-
-	// Route mode: use the direction of the ACTIVE navigation route
-	if (state.rotationMode === "route" && state.userPosition) {
-		let activeRoute = null;
-		if (
-			!state.hasReachedStart &&
-			state.approachRoute &&
-			state.approachRoute.length > 1
-		) {
-			activeRoute = state.approachRoute;
-		} else if (state.gpxRoute && state.gpxRoute.length > 1) {
-			activeRoute = state.gpxRoute;
-		}
-
-		if (activeRoute) {
+	} else if (state.rotationMode === "route" && state.userPosition) {
+		// --- REWRITTEN ROUTE MODE LOGIC ---
+		let activeRoute = state.hasReachedStart
+			? state.gpxRoute
+			: state.approachRoute;
+		if (activeRoute && activeRoute.length > 1) {
 			const progress = findNearestPointOnRoute(state.userPosition, activeRoute);
-			// Look much further ahead (100-150m) for very stable bearing on straights and gentle curves
-			const lookAheadDistance = Math.max(
-				100,
-				Math.min(150, state.simulationSpeed)
-			);
-			const lookAheadPoint = getPointAhead(
-				activeRoute,
-				progress.index,
-				lookAheadDistance
-			);
 
-			if (lookAheadPoint) {
-				const nearestPointOnRoute = activeRoute[progress.index];
-				heading = calculateBearing(nearestPointOnRoute, lookAheadPoint);
+			// Ensure we are not at the very end of the route
+			if (progress.index < activeRoute.length - 1) {
+				// Calculate bearing of the current segment for a stable heading
+				const currentSegmentStart = activeRoute[progress.index];
+				const currentSegmentEnd = activeRoute[progress.index + 1];
+				heading = calculateBearing(currentSegmentStart, currentSegmentEnd);
+			} else {
+				// If at the last point, use the bearing of the previous segment
+				const prevSegmentStart = activeRoute[progress.index - 1];
+				const prevSegmentEnd = activeRoute[progress.index];
+				heading = calculateBearing(prevSegmentStart, prevSegmentEnd);
 			}
 		}
 
@@ -1570,20 +1556,14 @@ function applyMapRotation() {
 		) {
 			heading = state.gpsHeading;
 		}
-
-		// NO SMOOTHING for route mode - use raw heading for instant updates
-		// (smoothing removed as it causes jerky small incremental rotations)
 	}
 
 	if (heading === null || isNaN(heading)) {
 		return;
 	}
 
-	// Update smoothed heading for next iteration (only used by compass mode)
 	state.smoothedHeading = heading;
 	state.currentHeading = heading;
-
-	// Rotate map so that heading points up
 	setMapBearing(-state.currentHeading);
 }
 
@@ -1786,56 +1766,13 @@ async function updateApproachRoute() {
 
 			// Combine approach route with GPX route for seamless transition
 			const combinedRoute = [...state.approachRoute, ...state.gpxRoute];
-
-			// Show look-ahead portion (1 mile)
-			const visibleRoute = getLookAheadRoute(combinedRoute, 0);
-			const previewRoute = getPreviewRoute(combinedRoute, 0);
-
-			console.log(
-				"📍 Displaying approach route - visible:",
-				visibleRoute.length,
-				"preview:",
-				previewRoute.length
-			);
-			displayRoute(visibleRoute, "#4285F4", 0.8, 6);
-
-			// Display preview if enabled
-			if (state.showPreview && previewRoute.length > 0) {
-				displayPreviewRouteApproach(previewRoute);
-			} else {
-				// Remove preview route and its decorator when hidden
-				if (state.previewRoutePolyline) {
-					state.map.removeLayer(state.previewRoutePolyline);
-					state.previewRoutePolyline = null;
-				}
-				if (state.previewRouteDecorator) {
-					state.map.removeLayer(state.previewRouteDecorator);
-					state.previewRouteDecorator = null;
-				}
-			}
+			displayRoute(combinedRoute, "#4285F4"); // Use the new function
 		}
 	} catch (error) {
 		console.error("Error getting approach route:", error);
 		// Fallback: draw straight line to start
 		const combinedRoute = [state.userPosition, ...state.gpxRoute];
-		const visibleRoute = getLookAheadRoute(combinedRoute, 0);
-		const previewRoute = getPreviewRoute(combinedRoute, 0);
-
-		displayRoute(visibleRoute, "#4285F4", 0.8, 6);
-
-		if (state.showPreview && previewRoute.length > 0) {
-			displayPreviewRouteApproach(previewRoute);
-		} else {
-			// Remove preview route and its decorator when hidden
-			if (state.previewRoutePolyline) {
-				state.map.removeLayer(state.previewRoutePolyline);
-				state.previewRoutePolyline = null;
-			}
-			if (state.previewRouteDecorator) {
-				state.map.removeLayer(state.previewRouteDecorator);
-				state.previewRouteDecorator = null;
-			}
-		}
+		displayRoute(combinedRoute, "#4285F4"); // Use the new function
 	}
 }
 
@@ -1867,26 +1804,7 @@ async function getOSRMRoute(start, end) {
 
 // Update Visible Route (Look-ahead)
 function updateVisibleRoute(startIndex) {
-	const visibleRoute = getLookAheadRoute(state.gpxRoute, startIndex);
-	const previewRoute = getPreviewRoute(state.gpxRoute, startIndex);
-
-	// Display main route (1 mile ahead)
-	displayRoute(visibleRoute, "#7C3AED", 0.8, 6);
-
-	// Display preview route (rest of route, transparent)
-	if (state.showPreview && previewRoute.length > 0) {
-		displayPreviewRoute(previewRoute);
-	} else {
-		// Remove preview route and its decorator when hidden
-		if (state.previewRoutePolyline) {
-			state.map.removeLayer(state.previewRoutePolyline);
-			state.previewRoutePolyline = null;
-		}
-		if (state.previewRouteDecorator) {
-			state.map.removeLayer(state.previewRouteDecorator);
-			state.previewRouteDecorator = null;
-		}
-	}
+	displayRoute(state.gpxRoute, "#7C3AED"); // Use the new function
 }
 
 // Get Preview Route (everything after 1 mile)
@@ -1936,55 +1854,56 @@ function getLookAheadRoute(route, startIndex) {
 }
 
 // Display Route on Map
-function displayRoute(route, color, opacity = 0.8, weight = 6) {
-	// Remove existing visible route layers
-	if (state.map.getLayer("visible-route-line")) {
-		state.map.removeLayer("visible-route-line");
-	}
-	if (state.map.getLayer("visible-route-arrows")) {
-		state.map.removeLayer("visible-route-arrows");
-	}
-	if (state.map.getSource("visible-route")) {
-		state.map.removeSource("visible-route");
-	}
+function displayRoute(fullRoute, color) {
+	if (!state.map || !state.userPosition) return;
 
-	// Add new route
-	if (route.length > 0) {
-		const routeGeoJSON = {
-			type: "Feature",
-			geometry: {
-				type: "LineString",
-				coordinates: route.map((p) => [p.lng, p.lat]),
-			},
-		};
+	// Always find the user's progress along the FULL route
+	const progress = findNearestPointOnRoute(state.userPosition, fullRoute);
+	const startIndex = progress.index;
 
-		state.map.addSource("visible-route", {
+	// --- Calculate the two parts of the route ---
+	const lookAheadRoute = getLookAheadRoute(fullRoute, startIndex);
+	const previewRoute = getPreviewRoute(fullRoute, startIndex);
+
+	// --- Prepare GeoJSON data sources ---
+	const lookAheadGeoJSON = {
+		type: "Feature",
+		geometry: {
+			type: "LineString",
+			coordinates: lookAheadRoute.map((p) => [p.lng, p.lat]),
+		},
+	};
+
+	const previewGeoJSON = {
+		type: "Feature",
+		geometry: {
+			type: "LineString",
+			coordinates: previewRoute.map((p) => [p.lng, p.lat]),
+		},
+	};
+
+	// --- Update or create map sources and layers ---
+
+	// 1. The main "Look Ahead" route (always visible)
+	if (state.map.getSource("look-ahead-route")) {
+		state.map.getSource("look-ahead-route").setData(lookAheadGeoJSON);
+	} else {
+		state.map.addSource("look-ahead-route", {
 			type: "geojson",
-			data: routeGeoJSON,
+			data: lookAheadGeoJSON,
 		});
-
-		// Add route line
 		state.map.addLayer({
-			id: "visible-route-line",
+			id: "look-ahead-route-line",
 			type: "line",
-			source: "visible-route",
-			paint: {
-				"line-color": color,
-				"line-width": weight,
-				"line-opacity": opacity,
-			},
-			layout: {
-				"line-join": "round",
-				"line-cap": "round",
-			},
+			source: "look-ahead-route",
+			paint: { "line-color": color, "line-width": 8, "line-opacity": 0.9 },
+			layout: { "line-join": "round", "line-cap": "round" },
 		});
-
-		// Add directional arrows using symbol layer (only if arrow icon exists)
 		if (state.map.hasImage("arrow")) {
 			state.map.addLayer({
-				id: "visible-route-arrows",
+				id: "look-ahead-route-arrows",
 				type: "symbol",
-				source: "visible-route",
+				source: "look-ahead-route",
 				layout: {
 					"symbol-placement": "line",
 					"symbol-spacing": 100,
@@ -1992,151 +1911,36 @@ function displayRoute(route, color, opacity = 0.8, weight = 6) {
 					"icon-size": 0.5,
 					"icon-rotation-alignment": "map",
 					"icon-allow-overlap": true,
-					"icon-ignore-placement": true,
-				},
-				paint: {
-					"icon-opacity": opacity,
 				},
 			});
 		}
-
-		state.visibleRoutePolyline = true; // Marker for cleanup
-	}
-}
-
-// Display Preview Route on Map (transparent)
-function displayPreviewRoute(route) {
-	// Remove existing preview route layers
-	if (state.map.getLayer("preview-route-line")) {
-		state.map.removeLayer("preview-route-line");
-	}
-	if (state.map.getLayer("preview-route-arrows")) {
-		state.map.removeLayer("preview-route-arrows");
-	}
-	if (state.map.getSource("preview-route-src")) {
-		state.map.removeSource("preview-route-src");
 	}
 
-	// Add new preview route
-	if (route.length > 0) {
-		const routeGeoJSON = {
-			type: "Feature",
-			geometry: {
-				type: "LineString",
-				coordinates: route.map((p) => [p.lng, p.lat]),
-			},
-		};
-
-		state.map.addSource("preview-route-src", {
+	// 2. The "Preview" route (the rest of the route, conditionally visible)
+	if (state.map.getSource("preview-route")) {
+		state.map.getSource("preview-route").setData(previewGeoJSON);
+	} else {
+		state.map.addSource("preview-route", {
 			type: "geojson",
-			data: routeGeoJSON,
+			data: previewGeoJSON,
 		});
-
 		state.map.addLayer({
 			id: "preview-route-line",
 			type: "line",
-			source: "preview-route-src",
-			paint: {
-				"line-color": "#7C3AED",
-				"line-width": 6,
-				"line-opacity": 0.8,
-			},
-			layout: {
-				"line-join": "round",
-				"line-cap": "round",
-			},
+			source: "preview-route",
+			paint: { "line-color": color, "line-width": 6, "line-opacity": 0.4 }, // More transparent
+			layout: { "line-join": "round", "line-cap": "round" },
 		});
-
-		// Add arrows only if icon exists
-		if (state.map.hasImage("arrow")) {
-			state.map.addLayer({
-				id: "preview-route-arrows",
-				type: "symbol",
-				source: "preview-route-src",
-				layout: {
-					"symbol-placement": "line",
-					"symbol-spacing": 100,
-					"icon-image": "arrow",
-					"icon-size": 0.5,
-					"icon-rotation-alignment": "map",
-					"icon-allow-overlap": true,
-					"icon-ignore-placement": true,
-				},
-				paint: {
-					"icon-opacity": 0.8,
-				},
-			});
-		}
-
-		state.previewRoutePolyline = true;
 	}
-}
 
-// Display Preview Route for Approach (solid, blue)
-function displayPreviewRouteApproach(route) {
-	// Remove existing preview route layers
+	// 3. Toggle visibility based on state.showPreview
+	const previewVisibility = state.showPreview ? "visible" : "none";
 	if (state.map.getLayer("preview-route-line")) {
-		state.map.removeLayer("preview-route-line");
-	}
-	if (state.map.getLayer("preview-route-arrows")) {
-		state.map.removeLayer("preview-route-arrows");
-	}
-	if (state.map.getSource("preview-route-src")) {
-		state.map.removeSource("preview-route-src");
-	}
-
-	// Add new preview route
-	if (route.length > 0) {
-		const routeGeoJSON = {
-			type: "Feature",
-			geometry: {
-				type: "LineString",
-				coordinates: route.map((p) => [p.lng, p.lat]),
-			},
-		};
-
-		state.map.addSource("preview-route-src", {
-			type: "geojson",
-			data: routeGeoJSON,
-		});
-
-		state.map.addLayer({
-			id: "preview-route-line",
-			type: "line",
-			source: "preview-route-src",
-			paint: {
-				"line-color": "#4285F4",
-				"line-width": 6,
-				"line-opacity": 0.8,
-			},
-			layout: {
-				"line-join": "round",
-				"line-cap": "round",
-			},
-		});
-
-		// Add arrows only if icon exists
-		if (state.map.hasImage("arrow")) {
-			state.map.addLayer({
-				id: "preview-route-arrows",
-				type: "symbol",
-				source: "preview-route-src",
-				layout: {
-					"symbol-placement": "line",
-					"symbol-spacing": 100,
-					"icon-image": "arrow",
-					"icon-size": 0.5,
-					"icon-rotation-alignment": "map",
-					"icon-allow-overlap": true,
-					"icon-ignore-placement": true,
-				},
-				paint: {
-					"icon-opacity": 0.8,
-				},
-			});
-		}
-
-		state.previewRoutePolyline = true;
+		state.map.setLayoutProperty(
+			"preview-route-line",
+			"visibility",
+			previewVisibility
+		);
 	}
 }
 
