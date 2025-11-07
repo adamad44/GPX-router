@@ -1386,22 +1386,23 @@ function processNewPosition(latitude, longitude, accuracy, heading) {
 	// Update or create user marker
 	updateUserMarker(latitude, longitude, accuracy);
 
-	// Rotate map if rotation mode is enabled
-	if (state.rotationMode !== "off") {
-		applyMapRotation();
-	}
-
 	// Center map on user if auto-center is enabled
 	if (state.autoCenterEnabled) {
-		// Use faster centering in compass mode for more responsive tracking
+		// When following, jump the center to avoid cancelling the rotation animation
+		const instantFollow = state.rotationMode !== "off";
 		const duration = state.rotationMode === "compass" ? 0.15 : 0.5;
 		centerOnLatLngWithOffset(
 			[longitude, latitude],
 			Math.max(state.map.getZoom(), 16),
-			{
-				duration: duration,
-			}
+			instantFollow
+				? { animate: false } // do not animate center while rotating
+				: { duration: duration }
 		);
+	}
+
+	// Rotate map if rotation mode is enabled
+	if (state.rotationMode !== "off") {
+		applyMapRotation();
 	}
 
 	// Update navigation
