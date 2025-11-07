@@ -1388,9 +1388,13 @@ function processNewPosition(latitude, longitude, accuracy, heading) {
 	if (state.autoCenterEnabled) {
 		// Use faster centering in compass mode for more responsive tracking
 		const duration = state.rotationMode === "compass" ? 0.15 : 0.5;
-		centerOnLatLngWithOffset([longitude, latitude], state.map.getZoom() || 16, {
-			duration: duration,
-		});
+		centerOnLatLngWithOffset(
+			[longitude, latitude],
+			Math.max(state.map.getZoom(), 16),
+			{
+				duration: duration,
+			}
+		);
 	}
 
 	// Update navigation
@@ -2155,10 +2159,13 @@ function findNearestPointOnRoute(position, route) {
 // Calculate Distance Between Two Points (Haversine)
 function calculateDistance(point1, point2) {
 	const R = 6371e3; // Earth's radius in meters
-	const φ1 = (point1[0] * Math.PI) / 180;
-	const φ2 = (point2[0] * Math.PI) / 180;
-	const Δφ = ((point2[0] - point1[0]) * Math.PI) / 180;
-	const Δλ = ((point2[1] - point1[1]) * Math.PI) / 180;
+	const p1 = getCoords(point1);
+	const p2 = getCoords(point2);
+
+	const φ1 = (p1.lat * Math.PI) / 180;
+	const φ2 = (p2.lat * Math.PI) / 180;
+	const Δφ = ((p2.lat - p1.lat) * Math.PI) / 180;
+	const Δλ = ((p2.lng - p1.lng) * Math.PI) / 180;
 
 	const a =
 		Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
@@ -2168,12 +2175,23 @@ function calculateDistance(point1, point2) {
 	return R * c;
 }
 
+// Helper function to normalize coordinates from both array and object formats
+function getCoords(point) {
+	if (Array.isArray(point)) {
+		return { lat: point[0], lng: point[1] };
+	}
+	return point; // Assumes it's already {lat, lng}
+}
+
 // Calculate Bearing between two points (for heading calculation)
 function calculateBearing(point1, point2) {
-	const lat1 = (point1[0] * Math.PI) / 180;
-	const lat2 = (point2[0] * Math.PI) / 180;
-	const lon1 = (point1[1] * Math.PI) / 180;
-	const lon2 = (point2[1] * Math.PI) / 180;
+	const p1 = getCoords(point1);
+	const p2 = getCoords(point2);
+
+	const lat1 = (p1.lat * Math.PI) / 180;
+	const lat2 = (p2.lat * Math.PI) / 180;
+	const lon1 = (p1.lng * Math.PI) / 180;
+	const lon2 = (p2.lng * Math.PI) / 180;
 
 	const y = Math.sin(lon2 - lon1) * Math.cos(lat2);
 	const x =
@@ -2270,14 +2288,10 @@ function centerMapOnUser() {
 		updateCenterButtonState();
 		// Use zoom level 17 for car navigation - appropriate for seeing road details
 		// Faster animation (250ms) for responsive feel
-		centerOnLatLngWithOffset(
-			[state.userPosition.lng, state.userPosition.lat],
-			17,
-			{
-				animate: true,
-				duration: 0.25,
-			}
-		);
+		centerOnLatLngWithOffset([state.userPosition[1], state.userPosition[0]], 17, {
+			animate: true,
+			duration: 0.25,
+		});
 	}
 }
 
