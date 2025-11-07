@@ -1476,9 +1476,9 @@ function applyMapRotation() {
 			heading = state.gpsHeading;
 		}
 
-		// Apply moderate smoothing for route mode (50% of the change for responsive but smooth transitions)
+		// Apply stronger smoothing for route mode (80% of the change for quick, responsive rotation)
 		if (heading !== null) {
-			heading = smoothHeading(heading, state.smoothedHeading, 0.5);
+			heading = smoothHeading(heading, state.smoothedHeading, 0.8);
 		}
 	}
 
@@ -1512,10 +1512,13 @@ function getPointAhead(route, startIndex, distanceAhead) {
 function setMapBearing(angleDeg) {
 	if (!state.map) return;
 
+	// Route mode needs faster, more responsive rotation
+	const duration = state.rotationMode === "route" ? 0.1 : 0.2;
+	
 	const rotationOptions = {
 		animate: true,
-		duration: 0.2, // Quick, responsive animation
-		easeLinearity: 0.3, // Smooth easing for natural feel
+		duration: duration, // Faster in route mode
+		easeLinearity: 0.5, // Linear easing for predictable rotation
 	};
 
 	// In compass mode, rotate around the user's location (the anchor point)
@@ -2305,16 +2308,19 @@ async function getOSRMRouteWithSteps(routePoints) {
 	try {
 		const response = await fetch(url);
 		const data = await response.json();
-		
+
 		console.log("OSRM Response code:", data.code);
 		console.log("OSRM has routes:", !!data.routes);
 
 		if (data.code === "Ok" && data.routes && data.routes.length > 0) {
 			const route = data.routes[0];
-			
+
 			console.log("Route legs:", route.legs?.length);
 			if (route.legs && route.legs[0]) {
-				console.log("First leg has voice_instructions:", !!route.legs[0].voice_instructions);
+				console.log(
+					"First leg has voice_instructions:",
+					!!route.legs[0].voice_instructions
+				);
 				console.log("First leg has steps:", !!route.legs[0].steps);
 				if (route.legs[0].steps) {
 					console.log("Number of steps:", route.legs[0].steps.length);
@@ -2347,10 +2353,12 @@ async function getOSRMRouteWithSteps(routePoints) {
 							}
 						}
 					}
-					
+
 					// Always check steps as fallback or if voice_instructions wasn't useful
 					if (leg.steps && steps.length === 0) {
-						console.log("✓ Using step-based instructions (voice_instructions not available or empty)");
+						console.log(
+							"✓ Using step-based instructions (voice_instructions not available or empty)"
+						);
 						for (const step of leg.steps) {
 							if (step.maneuver) {
 								const maneuver = step.maneuver;
