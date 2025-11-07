@@ -468,18 +468,8 @@ async function loadSelectedRoute(route) {
 
 		document.getElementById("file-info").textContent = `✓ ${route.name} loaded`;
 
-		// Get OSRM route with voice instructions
-		console.log("Fetching turn-by-turn instructions from OSRM...");
-		const osrmRoute = await getOSRMRouteWithSteps(state.gpxRoute);
-		if (osrmRoute && osrmRoute.steps) {
-			state.voiceSteps = osrmRoute.steps;
-			state.currentVoiceStepIndex = 0;
-			state.announcedSteps.clear();
-			console.log(`✓ Loaded ${osrmRoute.steps.length} navigation steps`);
-		} else {
-			console.warn("Could not get voice instructions from OSRM");
-			state.voiceSteps = [];
-		}
+		// Generate voice navigation steps from GPX route
+		loadNavigationSteps(state.gpxRoute);
 
 		setTimeout(() => {
 			startNavigation();
@@ -839,18 +829,8 @@ async function loadSelectedRouteForNavigation(route) {
 
 		document.getElementById("file-info").textContent = `✓ ${route.name} loaded`;
 
-		// Get OSRM route with voice instructions
-		console.log("Fetching turn-by-turn instructions from OSRM...");
-		const osrmRoute = await getOSRMRouteWithSteps(state.gpxRoute);
-		if (osrmRoute && osrmRoute.steps) {
-			state.voiceSteps = osrmRoute.steps;
-			state.currentVoiceStepIndex = 0;
-			state.announcedSteps.clear();
-			console.log(`✓ Loaded ${osrmRoute.steps.length} navigation steps`);
-		} else {
-			console.warn("Could not get voice instructions from OSRM");
-			state.voiceSteps = [];
-		}
+		// Generate voice navigation steps from GPX route
+		loadNavigationSteps(state.gpxRoute);
 
 		setTimeout(() => {
 			startNavigation();
@@ -973,20 +953,8 @@ function loadPresetRoute(routeId) {
 		"file-info"
 	).textContent = `✓ Route ${preset.routeNumber} loaded (${preset.points.length} points)`;
 
-	// Get OSRM route with voice instructions
-	(async () => {
-		console.log("Fetching turn-by-turn instructions from OSRM...");
-		const osrmRoute = await getOSRMRouteWithSteps(state.gpxRoute);
-		if (osrmRoute && osrmRoute.steps) {
-			state.voiceSteps = osrmRoute.steps;
-			state.currentVoiceStepIndex = 0;
-			state.announcedSteps.clear();
-			console.log(`✓ Loaded ${osrmRoute.steps.length} navigation steps`);
-		} else {
-			console.warn("Could not get voice instructions from OSRM");
-			state.voiceSteps = [];
-		}
-	})();
+	// Generate voice navigation steps from GPX route
+	loadNavigationSteps(state.gpxRoute);
 
 	setTimeout(() => {
 		startNavigation();
@@ -1017,18 +985,8 @@ async function handleFileUpload(event) {
 			"file-info"
 		).textContent = `✓ ${file.name} loaded (${gpxData.length} points)`;
 
-		// Get OSRM route with voice instructions
-		console.log("Fetching turn-by-turn instructions from OSRM...");
-		const osrmRoute = await getOSRMRouteWithSteps(gpxData);
-		if (osrmRoute && osrmRoute.steps) {
-			state.voiceSteps = osrmRoute.steps;
-			state.currentVoiceStepIndex = 0;
-			state.announcedSteps.clear();
-			console.log(`✓ Loaded ${osrmRoute.steps.length} navigation steps`);
-		} else {
-			console.warn("Could not get voice instructions from OSRM");
-			state.voiceSteps = [];
-		}
+		// Generate voice navigation steps from GPX route
+		loadNavigationSteps(state.gpxRoute);
 
 		setTimeout(() => {
 			startNavigation();
@@ -1413,8 +1371,10 @@ function processNewPosition(latitude, longitude, accuracy, heading) {
 	// Update navigation
 	updateNavigation();
 
-	// Check voice guidance
-	checkVoiceGuidance();
+	// Check voice guidance using new system
+	if (state.voiceEnabled) {
+		updateVoiceNavigation(state.userPosition);
+	}
 }
 
 // GPS Smoothing Animation
@@ -2315,21 +2275,46 @@ function resetApp() {
 // ============================================
 
 // Voice navigation state
+// ============================================================================
+// VOICE NAVIGATION SYSTEM - Modern Google Maps-quality implementation
+// ============================================================================
+
+/**
+ * Voice Navigation State
+ * Manages all voice guidance state independently from routing engine
+ */
 const voiceState = {
+	// Core state
 	isInitialized: false,
+	isEnabled: false,
 	isSpeaking: false,
+
+	// Voice selection
 	selectedVoice: null,
-	lastAnnouncedStep: -1,
-	lastAnnouncedDistance: null,
-	repeatCount: 0,
+
+	// Navigation steps (generated from GPX route analysis)
+	steps: [],
+	currentStepIndex: 0,
+
+	// Announcement tracking
+	announced: new Map(), // Map of "stepIndex-threshold" -> true
+	lastCheckTime: 0,
+	lastUserPosition: null,
+
+	// Performance
+	checkInterval: 500, // ms between voice checks
 };
 
-// Initialize voice navigation button
+/**
+ * Initialize Voice Navigation System
+ * Sets up UI, speech synthesis, and loads voice preferences
+ */
 function initVoiceNavigation() {
+	// Create voice toggle button
 	const voiceButton = document.createElement("button");
 	voiceButton.id = "voice-button";
 	voiceButton.className = "control-button with-label";
-	voiceButton.title = "Turn voice directions on/off";
+	voiceButton.title = "Toggle voice navigation";
 	voiceButton.innerHTML = `
 		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 			<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
@@ -2342,38 +2327,53 @@ function initVoiceNavigation() {
 
 	const container = document.querySelector(".control-buttons-container");
 	const previewButton = document.getElementById("toggle-preview-button");
-	container.insertBefore(voiceButton, previewButton);
+	if (container && previewButton) {
+		container.insertBefore(voiceButton, previewButton);
+	}
 
 	voiceButton.addEventListener("click", toggleVoiceNavigation);
-	updateVoiceButtonState();
 
 	// Initialize speech synthesis
 	initializeSpeechSynthesis();
+
+	// Load saved preference
+	const savedPref = localStorage.getItem("voiceNavigationEnabled");
+	if (savedPref === "true") {
+		state.voiceEnabled = true;
+		updateVoiceButtonState();
+	}
+
+	console.log("✓ Voice navigation system initialized");
 }
 
-// Initialize speech synthesis properly for iOS/Safari
+/**
+ * Initialize Speech Synthesis API
+ * Handles voice loading and selection (iOS/Safari compatible)
+ */
 function initializeSpeechSynthesis() {
 	if (!window.speechSynthesis) {
-		console.warn("Speech synthesis not supported");
+		console.warn("Speech synthesis not supported on this device");
 		return;
 	}
 
-	// Load voices
 	let voicesLoaded = false;
 
 	const loadVoices = () => {
 		const voices = window.speechSynthesis.getVoices();
+
 		if (voices.length > 0 && !voicesLoaded) {
 			voicesLoaded = true;
 
-			// Select best voice (prefer UK English, then US English)
+			// Prefer UK English (British), then US English, then any English
 			voiceState.selectedVoice =
-				voices.find((v) => v.lang === "en-GB" && v.name.includes("Female")) ||
+				voices.find(
+					(v) => v.lang === "en-GB" && v.name.toLowerCase().includes("female")
+				) ||
 				voices.find((v) => v.lang === "en-GB") ||
 				voices.find(
-					(v) => v.lang.startsWith("en-US") && v.name.includes("Female")
+					(v) => v.lang === "en-US" && v.name.toLowerCase().includes("female")
 				) ||
-				voices.find((v) => v.lang.startsWith("en-US")) ||
+				voices.find((v) => v.lang === "en-US") ||
 				voices.find((v) => v.lang.startsWith("en")) ||
 				voices[0];
 
@@ -2384,68 +2384,387 @@ function initializeSpeechSynthesis() {
 		}
 	};
 
-	// iOS needs the onvoiceschanged event
+	// iOS/Safari needs the onvoiceschanged event
 	if (speechSynthesis.onvoiceschanged !== undefined) {
 		speechSynthesis.onvoiceschanged = loadVoices;
 	}
 
-	// Also try loading immediately
+	// Try loading immediately (works on most browsers)
 	loadVoices();
 
-	// iOS/Safari requires user interaction to unlock audio
-	// This will be called when user clicks the voice button
 	voiceState.isInitialized = true;
 }
 
-// Toggle voice navigation on/off
+/**
+ * Toggle Voice Navigation On/Off
+ * Includes iOS audio unlock and saves preference
+ */
 function toggleVoiceNavigation() {
 	state.voiceEnabled = !state.voiceEnabled;
+	voiceState.isEnabled = state.voiceEnabled;
+
+	// Save preference
+	localStorage.setItem("voiceNavigationEnabled", state.voiceEnabled.toString());
+
 	updateVoiceButtonState();
 
 	if (state.voiceEnabled) {
-		// CRITICAL: Unlock speech synthesis with immediate user gesture
-		// iOS Safari requires this to happen synchronously in the click handler
+		// CRITICAL: iOS Safari requires audio unlock in direct user gesture
+		// Play silent utterance to unlock audio context
 		const unlockUtterance = new SpeechSynthesisUtterance(" ");
-		unlockUtterance.volume = 0.01; // Nearly silent
-		unlockUtterance.rate = 10; // Very fast
+		unlockUtterance.volume = 0.01;
+		unlockUtterance.rate = 10;
 		window.speechSynthesis.speak(unlockUtterance);
 
-		// Now announce that voice is enabled
+		// Announce activation
 		setTimeout(() => {
-			speakImmediate("Voice guidance on");
-		}, 200);
+			speak("Voice guidance on", true);
+		}, 150);
 
 		// Reset tracking
-		voiceState.lastAnnouncedStep = -1;
-		voiceState.lastAnnouncedDistance = null;
-		state.announcedSteps.clear();
+		voiceState.announced.clear();
+		voiceState.currentStepIndex = 0;
 
 		console.log("🔊 Voice navigation enabled");
 	} else {
 		// Cancel any ongoing speech
 		if (window.speechSynthesis) {
 			window.speechSynthesis.cancel();
+			voiceState.isSpeaking = false;
 		}
-		speakImmediate("Voice guidance off");
+
 		console.log("🔇 Voice navigation disabled");
 	}
 }
 
-// Update voice button appearance
+/**
+ * Update Voice Button Visual State
+ */
 function updateVoiceButtonState() {
 	const button = document.getElementById("voice-button");
 	if (!button) return;
 
 	const label = button.querySelector(".button-label");
-	if (!label) return;
 
 	if (state.voiceEnabled) {
 		button.classList.add("active");
-		label.textContent = "Voice On";
+		if (label) label.textContent = "Voice On";
 	} else {
 		button.classList.remove("active");
-		label.textContent = "Voice Off";
+		if (label) label.textContent = "Voice Off";
 	}
+}
+
+/**
+ * Speak Text with Speech Synthesis
+ * @param {string} text - Text to speak
+ * @param {boolean} immediate - If true, cancels current speech
+ */
+function speak(text, immediate = false) {
+	if (!window.speechSynthesis || !state.voiceEnabled) {
+		return;
+	}
+
+	// Cancel ongoing speech if immediate
+	if (immediate) {
+		window.speechSynthesis.cancel();
+		voiceState.isSpeaking = false;
+	}
+
+	// Don't queue up normal announcements if already speaking
+	if (voiceState.isSpeaking && !immediate) {
+		console.log("⏸️ Speech busy, skipping:", text);
+		return;
+	}
+
+	const utterance = new SpeechSynthesisUtterance(text);
+	utterance.rate = 0.95; // Slightly slower for clarity
+	utterance.pitch = 1.0;
+	utterance.volume = 1.0;
+	utterance.lang = "en-GB"; // British English
+
+	if (voiceState.selectedVoice) {
+		utterance.voice = voiceState.selectedVoice;
+	}
+
+	utterance.onstart = () => {
+		voiceState.isSpeaking = true;
+	};
+
+	utterance.onend = () => {
+		voiceState.isSpeaking = false;
+	};
+
+	utterance.onerror = (event) => {
+		console.error("Speech error:", event.error);
+		voiceState.isSpeaking = false;
+	};
+
+	window.speechSynthesis.speak(utterance);
+	console.log("🔊", text);
+}
+
+/**
+ * Generate Navigation Steps from GPX Route
+ * Analyzes route geometry to detect turns and create voice instructions
+ * @param {Array} routePoints - Array of {lat, lng} points from GPX
+ * @returns {Array} Array of navigation steps with instructions and positions
+ */
+function generateNavigationSteps(routePoints) {
+	if (!routePoints || routePoints.length < 3) {
+		console.warn("Not enough points to generate navigation steps");
+		return [];
+	}
+
+	const steps = [];
+	let cumulativeDistance = 0;
+
+	// Analyze route at regular intervals to detect significant turns
+	const ANALYSIS_INTERVAL = 50; // meters - check every 50m
+	const MIN_TURN_ANGLE = 30; // degrees - minimum angle to consider a turn
+	const ROUNDABOUT_DETECTION_ANGLE = 270; // degrees - cumulative turn suggests roundabout
+
+	let lastAnalysisPoint = routePoints[0];
+	let lastBearing = calculateBearing(routePoints[0], routePoints[1]);
+	let cumulativeTurnAngle = 0;
+	let pointsSinceLastTurn = 0;
+
+	for (let i = 1; i < routePoints.length - 1; i++) {
+		const point = routePoints[i];
+		const nextPoint = routePoints[i + 1];
+
+		const distanceFromLast = calculateDistance(lastAnalysisPoint, point);
+		cumulativeDistance += calculateDistance(routePoints[i - 1], point);
+		pointsSinceLastTurn++;
+
+		// Analyze at intervals or at significant points
+		if (distanceFromLast >= ANALYSIS_INTERVAL || i === routePoints.length - 2) {
+			const currentBearing = calculateBearing(point, nextPoint);
+			let turnAngle = currentBearing - lastBearing;
+
+			// Normalize angle to -180 to 180
+			while (turnAngle > 180) turnAngle -= 360;
+			while (turnAngle < -180) turnAngle += 360;
+
+			const absTurnAngle = Math.abs(turnAngle);
+			cumulativeTurnAngle += absTurnAngle;
+
+			// Detect significant turns
+			if (absTurnAngle >= MIN_TURN_ANGLE && pointsSinceLastTurn > 3) {
+				// Check if this might be part of a roundabout
+				const isRoundabout =
+					cumulativeTurnAngle > ROUNDABOUT_DETECTION_ANGLE &&
+					pointsSinceLastTurn < 30;
+
+				let instruction = "";
+				let maneuverType = "";
+
+				if (isRoundabout) {
+					// Simplified roundabout detection
+					maneuverType = "roundabout";
+					instruction = "At the roundabout, continue";
+					cumulativeTurnAngle = 0; // Reset after roundabout
+				} else {
+					// Regular turn
+					maneuverType = "turn";
+
+					if (absTurnAngle >= 120) {
+						// Sharp turn or U-turn
+						instruction = turnAngle > 0 ? "Turn sharp right" : "Turn sharp left";
+					} else if (absTurnAngle >= MIN_TURN_ANGLE) {
+						// Normal turn
+						instruction = turnAngle > 0 ? "Turn right" : "Turn left";
+					}
+				}
+
+				if (instruction) {
+					steps.push({
+						position: { lat: point.lat, lng: point.lng },
+						instruction: instruction,
+						distance: Math.round(cumulativeDistance),
+						type: maneuverType,
+						angle: turnAngle,
+					});
+
+					console.log(
+						`Step ${steps.length}: "${instruction}" at ${cumulativeDistance.toFixed(
+							0
+						)}m`
+					);
+				}
+
+				lastBearing = currentBearing;
+				lastAnalysisPoint = point;
+				pointsSinceLastTurn = 0;
+				cumulativeTurnAngle = 0;
+			} else if (distanceFromLast >= ANALYSIS_INTERVAL * 2) {
+				// Update bearing even if no turn
+				lastBearing = currentBearing;
+				lastAnalysisPoint = point;
+			}
+		}
+	}
+
+	// Add arrival step
+	const endPoint = routePoints[routePoints.length - 1];
+	steps.push({
+		position: { lat: endPoint.lat, lng: endPoint.lng },
+		instruction: "You have arrived at your destination",
+		distance: Math.round(cumulativeDistance),
+		type: "arrive",
+		angle: 0,
+	});
+
+	console.log(`✓ Generated ${steps.length} navigation steps from GPX route`);
+	return steps;
+}
+
+/**
+ * Update Voice Navigation Based on User Position
+ * Main voice guidance loop - called frequently during navigation
+ * @param {Array} userPosition - [lat, lng] of user's current position
+ */
+function updateVoiceNavigation(userPosition) {
+	if (
+		!state.voiceEnabled ||
+		!userPosition ||
+		!voiceState.steps ||
+		voiceState.steps.length === 0
+	) {
+		return;
+	}
+
+	// Throttle checks to improve performance (500ms interval)
+	const now = Date.now();
+	if (now - voiceState.lastCheckTime < voiceState.checkInterval) {
+		return;
+	}
+	voiceState.lastCheckTime = now;
+
+	// Find next upcoming maneuver
+	let nextStep = null;
+	let nextStepIndex = -1;
+	let distanceToNext = Infinity;
+
+	for (let i = voiceState.currentStepIndex; i < voiceState.steps.length; i++) {
+		const step = voiceState.steps[i];
+		const distance = calculateDistance(userPosition, [
+			step.position.lat,
+			step.position.lng,
+		]);
+
+		if (distance < distanceToNext) {
+			distanceToNext = distance;
+			nextStep = step;
+			nextStepIndex = i;
+		}
+
+		// Only check next few steps
+		if (i > voiceState.currentStepIndex + 2) break;
+	}
+
+	if (!nextStep || nextStepIndex === -1) {
+		return;
+	}
+
+	// Announce at Google Maps-style thresholds
+	announceAtThreshold(nextStep, nextStepIndex, distanceToNext, 500, "500m"); // Far advance
+	announceAtThreshold(nextStep, nextStepIndex, distanceToNext, 200, "200m"); // Main advance
+	announceAtThreshold(nextStep, nextStepIndex, distanceToNext, 50, "50m"); // Final warning
+
+	// Check if user passed this maneuver (advance to next)
+	if (distanceToNext > 100 && nextStepIndex === voiceState.currentStepIndex) {
+		// Check if we're actually past it (behind us) not just far away
+		if (voiceState.lastUserPosition) {
+			const lastDist = calculateDistance(voiceState.lastUserPosition, [
+				nextStep.position.lat,
+				nextStep.position.lng,
+			]);
+
+			// If distance is increasing, we've passed it
+			if (distanceToNext > lastDist + 20) {
+				console.log(`✓ Passed step ${nextStepIndex}, advancing to next`);
+				voiceState.currentStepIndex = nextStepIndex + 1;
+
+				// Announce next maneuver if close
+				if (nextStepIndex + 1 < voiceState.steps.length) {
+					const nextNextStep = voiceState.steps[nextStepIndex + 1];
+					const distToNextNext = calculateDistance(userPosition, [
+						nextNextStep.position.lat,
+						nextNextStep.position.lng,
+					]);
+
+					if (distToNextNext < 300) {
+						speak(`Then ${nextNextStep.instruction.toLowerCase()}`, true);
+					}
+				}
+			}
+		}
+	}
+
+	voiceState.lastUserPosition = userPosition;
+}
+
+/**
+ * Announce instruction at specific distance threshold
+ * Prevents duplicate announcements using voiceState.announced Map
+ */
+function announceAtThreshold(step, stepIndex, distance, threshold, key) {
+	const announceKey = `${stepIndex}-${key}`;
+
+	// Check if within threshold and not already announced
+	if (
+		distance <= threshold &&
+		distance > threshold * 0.7 &&
+		!voiceState.announced.has(announceKey)
+	) {
+		voiceState.announced.set(announceKey, true);
+
+		let message = "";
+
+		// Format announcement based on distance
+		if (threshold >= 200) {
+			// Far announcement - include distance
+			const roundedDist = Math.round(distance / 50) * 50; // Round to nearest 50m
+			message = `In ${roundedDist} metres, ${step.instruction.toLowerCase()}`;
+		} else if (threshold >= 50) {
+			// Close announcement - just the instruction
+			message = step.instruction;
+		} else {
+			// Immediate - emphasize now
+			message = step.instruction;
+		}
+
+		// Use immediate mode for close announcements
+		const immediate = threshold < 100;
+		speak(message, immediate);
+
+		console.log(
+			`📢 Announced at ${distance.toFixed(
+				0
+			)}m (threshold: ${threshold}m): "${message}"`
+		);
+	}
+}
+
+/**
+ * Load Navigation Steps for Route
+ * Called when route is loaded - generates steps from GPX geometry
+ * @param {Array} routePoints - GPX route points
+ */
+function loadNavigationSteps(routePoints) {
+	if (!routePoints || routePoints.length < 2) {
+		voiceState.steps = [];
+		return;
+	}
+
+	// Generate steps from GPX route analysis
+	voiceState.steps = generateNavigationSteps(routePoints);
+	voiceState.currentStepIndex = 0;
+	voiceState.announced.clear();
+	voiceState.lastUserPosition = null;
+
+	console.log(`✓ Loaded ${voiceState.steps.length} voice navigation steps`);
 }
 
 // Helper function to get ordinal number (1st, 2nd, 3rd, etc.)
@@ -2742,257 +3061,20 @@ function enhanceInstruction(maneuver, step) {
 	return maneuver.instruction || `Continue ${modifier || ""}`.trim();
 }
 
-// Speak text immediately (for confirmations)
-function speakImmediate(text) {
-	if (!window.speechSynthesis) {
-		return;
-	}
+// ============================================================================
+// OLD OSRM-BASED VOICE FUNCTIONS - DEPRECATED
+// These functions are kept for reference but are no longer used
+// The new voice navigation system (above) works directly with GPX routes
+// ============================================================================
 
-	// Cancel any ongoing speech
-	window.speechSynthesis.cancel();
-	voiceState.isSpeaking = false;
+// OLD: Removed speakImmediate - functionality merged into speak()
+// OLD: Removed speakNavigation - functionality merged into speak()
+// OLD: Removed checkVoiceGuidance - replaced by updateVoiceNavigation()
+// OLD: Removed checkArrival - functionality merged into navigation steps
 
-	const utterance = new SpeechSynthesisUtterance(text);
-	utterance.rate = 1.0;
-	utterance.pitch = 1.0;
-	utterance.volume = 1.0;
-
-	if (voiceState.selectedVoice) {
-		utterance.voice = voiceState.selectedVoice;
-	}
-
-	utterance.onstart = () => {
-		voiceState.isSpeaking = true;
-	};
-
-	utterance.onend = () => {
-		voiceState.isSpeaking = false;
-	};
-
-	utterance.onerror = (event) => {
-		console.error("Speech error:", event);
-		voiceState.isSpeaking = false;
-	};
-
-	window.speechSynthesis.speak(utterance);
-	console.log("🔊", text);
-}
-
-// Speak navigation instruction with distance
-function speakNavigation(text, priority = "normal") {
-	if (!window.speechSynthesis || !state.voiceEnabled) {
-		return;
-	}
-
-	// For high priority (imminent turns), cancel ongoing speech
-	if (priority === "high") {
-		window.speechSynthesis.cancel();
-		voiceState.isSpeaking = false;
-	}
-
-	// Don't interrupt ongoing speech for normal priority
-	if (voiceState.isSpeaking && priority === "normal") {
-		console.log("⏸️ Speech busy, skipping:", text);
-		return;
-	}
-
-	const utterance = new SpeechSynthesisUtterance(text);
-	utterance.rate = 0.95; // Slightly slower for clarity
-	utterance.pitch = 1.0;
-	utterance.volume = 1.0;
-
-	if (voiceState.selectedVoice) {
-		utterance.voice = voiceState.selectedVoice;
-	}
-
-	utterance.onstart = () => {
-		voiceState.isSpeaking = true;
-	};
-
-	utterance.onend = () => {
-		voiceState.isSpeaking = false;
-	};
-
-	utterance.onerror = (event) => {
-		console.error("Speech error:", event);
-		voiceState.isSpeaking = false;
-	};
-
-	window.speechSynthesis.speak(utterance);
-	console.log("🔊", text);
-}
-
-// Check if we should announce upcoming maneuvers
-function checkVoiceGuidance() {
-	if (
-		!state.voiceEnabled ||
-		!state.userPosition ||
-		!state.voiceSteps ||
-		state.voiceSteps.length === 0
-	) {
-		return;
-	}
-
-	// Distance thresholds for announcements
-	const LONG_ADVANCE = 500; // 500m - early warning
-	const ADVANCE = 200; // 200m - main instruction
-	const IMMINENT = 75; // 75m - "prepare to turn"
-	const NOW = 30; // 30m - final instruction
-
-	// Find the closest upcoming step
-	let closestStepIndex = -1;
-	let closestDistance = Infinity;
-
-	for (let i = state.currentVoiceStepIndex; i < state.voiceSteps.length; i++) {
-		const step = state.voiceSteps[i];
-		const stepLocation = [step.location[1], step.location[0]]; // [lon, lat]
-		const distance = calculateDistance(state.userPosition, stepLocation);
-
-		if (distance < closestDistance) {
-			closestDistance = distance;
-			closestStepIndex = i;
-		}
-
-		// Only check next few steps to avoid looking too far ahead
-		if (i > state.currentVoiceStepIndex + 3) break;
-	}
-
-	if (closestStepIndex === -1) {
-		// Check if we've arrived
-		checkArrival();
-		return;
-	}
-
-	const step = state.voiceSteps[closestStepIndex];
-	const distance = closestDistance;
-
-	// Create unique announcement keys
-	const longKey = `${closestStepIndex}-long`;
-	const advanceKey = `${closestStepIndex}-advance`;
-	const imminentKey = `${closestStepIndex}-imminent`;
-	const nowKey = `${closestStepIndex}-now`;
-
-	// 1. Long advance notice (500m) - only for significant turns
-	if (
-		distance <= LONG_ADVANCE &&
-		distance > ADVANCE &&
-		!state.announcedSteps.has(longKey)
-	) {
-		// Only announce long advance for major maneuvers (not slight adjustments)
-		if (
-			step.type === "roundabout" ||
-			step.type === "rotary" ||
-			(step.type === "turn" && !step.modifier?.includes("slight"))
-		) {
-			const distanceRounded = Math.round(distance / 50) * 50;
-			speakNavigation(
-				`In ${distanceRounded} meters, ${step.instruction}`,
-				"normal"
-			);
-			state.announcedSteps.add(longKey);
-			voiceState.lastAnnouncedStep = closestStepIndex;
-			voiceState.lastAnnouncedDistance = distance;
-		}
-		return;
-	}
-
-	// 2. Main advance notice (200m)
-	if (
-		distance <= ADVANCE &&
-		distance > IMMINENT &&
-		!state.announcedSteps.has(advanceKey)
-	) {
-		const distanceRounded = Math.round(distance / 25) * 25;
-		speakNavigation(
-			`In ${distanceRounded} meters, ${step.instruction}`,
-			"normal"
-		);
-		state.announcedSteps.add(advanceKey);
-		voiceState.lastAnnouncedStep = closestStepIndex;
-		voiceState.lastAnnouncedDistance = distance;
-		return;
-	}
-
-	// 3. Imminent notice (75m) - "prepare to..."
-	if (
-		distance <= IMMINENT &&
-		distance > NOW &&
-		!state.announcedSteps.has(imminentKey)
-	) {
-		// Just repeat the instruction
-		speakNavigation(step.instruction, "normal");
-		state.announcedSteps.add(imminentKey);
-		voiceState.lastAnnouncedStep = closestStepIndex;
-		voiceState.lastAnnouncedDistance = distance;
-		return;
-	}
-
-	// 4. Final "now" instruction (30m)
-	if (distance <= NOW && !state.announcedSteps.has(nowKey)) {
-		speakNavigation(step.instruction, "high");
-		state.announcedSteps.add(nowKey);
-		voiceState.lastAnnouncedStep = closestStepIndex;
-		voiceState.lastAnnouncedDistance = distance;
-
-		// Move to next step
-		state.currentVoiceStepIndex = closestStepIndex + 1;
-		return;
-	}
-
-	// 5. Check if we've just passed a turn and should announce the NEXT turn immediately
-	// This detects when we're past the current step (behind us) and announces the next one
-	if (closestStepIndex > 0 && state.currentVoiceStepIndex > 0) {
-		const previousStepIndex = closestStepIndex - 1;
-		if (previousStepIndex >= 0 && previousStepIndex < state.voiceSteps.length) {
-			const prevStep = state.voiceSteps[previousStepIndex];
-			const prevLocation = [prevStep.location[1], prevStep.location[0]];
-			const distanceToPrev = calculateDistance(state.userPosition, prevLocation);
-
-			// If we're 20-80m past the previous turn, announce the next turn immediately
-			const justPassedKey = `${closestStepIndex}-justpassed`;
-			if (
-				distanceToPrev < 80 &&
-				distanceToPrev > 20 &&
-				!state.announcedSteps.has(justPassedKey) &&
-				distance < 500
-			) {
-				// Only if next turn is within 500m
-				// Check that we're actually past it (behind us)
-				speakNavigation(step.instruction, "high");
-				state.announcedSteps.add(justPassedKey);
-				console.log(
-					`✓ Just passed turn, immediately announcing next: ${step.instruction}`
-				);
-			}
-		}
-	}
-
-	// If we've passed this step (more than 300m past), move to next
-	if (distance > 300 && closestStepIndex === voiceState.lastAnnouncedStep) {
-		state.currentVoiceStepIndex = closestStepIndex + 1;
-		console.log(`✓ Passed step ${closestStepIndex}, moving to next`);
-	}
-}
-
-// Check if user has arrived at destination
-function checkArrival() {
-	if (!state.gpxRoute || state.gpxRoute.length === 0) return;
-
-	const endPoint = state.gpxRoute[state.gpxRoute.length - 1];
-	const distanceToEnd = calculateDistance(state.userPosition, endPoint);
-
-	// Announce when within 100m of destination
-	if (distanceToEnd < 100 && !state.announcedSteps.has("arriving")) {
-		speakNavigation(
-			`Arriving at destination in ${Math.round(distanceToEnd)} meters`,
-			"normal"
-		);
-		state.announcedSteps.add("arriving");
-	}
-
-	// Announce arrival when within 30m
-	if (distanceToEnd < 30 && !state.announcedSteps.has("arrival")) {
-		speakNavigation("You have arrived at your destination", "high");
-		state.announcedSteps.add("arrival");
-	}
-}
+// The new system eliminates OSRM dependency and provides:
+// - Direct GPX route analysis
+// - Google Maps-quality timing (500m, 200m, 50m)
+// - No duplicate announcements
+// - Better performance with throttled checks
+// - Cleaner, more maintainable code
