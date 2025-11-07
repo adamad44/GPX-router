@@ -1409,11 +1409,6 @@ function processNewPosition(latitude, longitude, accuracy, heading) {
 	// Update or create user marker (initial creation only, position will be updated by animation)
 	updateUserMarker(latitude, longitude, accuracy);
 
-	// Rotate map if rotation mode is enabled
-	if (state.rotationMode !== "off") {
-		applyMapRotation();
-	}
-
 	// Update navigation
 	updateNavigation();
 
@@ -1469,6 +1464,11 @@ function smoothPositionUpdate() {
 			Math.max(state.map.getZoom(), 16),
 			{ animate: false } // Don't animate center during smooth interpolation
 		);
+	}
+
+	// Apply map rotation continuously during smoothing if rotation mode is enabled
+	if (state.rotationMode !== "off") {
+		applyMapRotation();
 	}
 
 	// Continue animation if not yet reached target
@@ -1629,20 +1629,13 @@ function applyMapRotation() {
 			}
 		}
 		if (heading !== null) {
-			heading = smoothHeading(heading, state.smoothedHeading || heading, 0.25);
+			heading = smoothHeading(heading, state.smoothedHeading || heading, 0.15);
 		}
 	}
 
 	if (heading === null || isNaN(heading)) {
 		return;
 	}
-
-	// Throttle rotation updates to ~6 FPS to avoid animation queue saturation
-	const now = performance.now ? performance.now() : Date.now();
-	if (now - state.lastRotationUpdateTime < 150) {
-		return; // Skip if too soon
-	}
-	state.lastRotationUpdateTime = now;
 
 	state.smoothedHeading = heading;
 	state.currentHeading = heading;
@@ -1694,12 +1687,27 @@ function computeRouteHeading(route, currentIndex, distanceAheadMeters = 40) {
 function setMapBearing(angleDeg) {
 	if (!state.map) return;
 
-	// Use a smooth easeTo for ALL rotation modes to prevent jerky movements.
-	// A short duration keeps it feeling responsive.
+	const currentBearing = state.map.getBearing();
+
+	// Normalize the angle difference to avoid spinning the long way around
+	let delta = angleDeg - currentBearing;
+	while (delta > 180) delta -= 360;
+	while (delta < -180) delta += 360;
+
+	const targetBearing = currentBearing + delta;
+
+	// Use jumpTo for very small changes to avoid animation overhead
+	if (Math.abs(delta) < 1) {
+		state.map.jumpTo({ bearing: targetBearing });
+		return;
+	}
+
+	// Use a very short duration for smooth continuous rotation
+	// This works well with requestAnimationFrame updates
 	state.map.easeTo({
-		bearing: angleDeg,
-		duration: 250, // A quick but smooth 250ms animation
-		easing: (t) => t, // Linear easing for a consistent rotation speed
+		bearing: targetBearing,
+		duration: 100, // Short duration for responsive, smooth rotation
+		easing: (t) => t, // Linear easing for consistent rotation speed
 	});
 }
 
