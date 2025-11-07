@@ -52,12 +52,16 @@ const state = {
 	interpolatedPosition: null, // Current smoothly interpolated position
 	smoothingAnimationFrame: null, // Animation frame ID
 	lastUpdateTime: 0, // Timestamp of last GPS update
+	// Route Progress Tracking (One-way navigation)
+	currentRouteIndex: 0, // Current furthest point reached on the route (one-way progression)
+	maxRouteIndexReached: 0, // Maximum index ever reached (prevents backward jumps)
 };
 
 // Constants
 const LOOK_AHEAD_DISTANCE = 1609.34; // 1 mile in meters
 const GPS_SMOOTHING_DURATION = 1000; // Milliseconds to interpolate between GPS updates (1 second)
 const START_POINT_THRESHOLD = 50; // 50 meters to consider "reached start"
+const OFF_ROUTE_THRESHOLD = 100; // 100 meters to consider user is off-route
 const OSRM_API = "https://router.project-osrm.org/route/v1/driving/";
 // Ratio controlling vertical offset of the user's position when auto-centering.
 // 0.5 means exact center. Smaller values push the user marker further toward the bottom.
@@ -1037,6 +1041,12 @@ function startNavigation() {
 	document.getElementById("route-preview-section").classList.add("hidden");
 	document.getElementById("navigation-section").classList.remove("hidden");
 
+	// Reset navigation state for new route
+	state.hasReachedStart = false;
+	state.currentRouteIndex = 0;
+	state.maxRouteIndexReached = 0;
+	state.approachRoute = [];
+
 	// Initialize map if not already done
 	if (!state.map) {
 		initializeMap();
@@ -1824,7 +1834,10 @@ async function updateNavigation() {
 	if (!state.hasReachedStart && distanceToStart <= START_POINT_THRESHOLD) {
 		state.hasReachedStart = true;
 		state.approachRoute = [];
-		updateStatusText("Following GPX route");
+		// Initialize route tracking at the start
+		state.currentRouteIndex = 0;
+		state.maxRouteIndexReached = 0;
+		updateStatusText("Following GPX route - locked to one-way progression");
 	}
 
 	// If not at start, get route to start
@@ -1834,14 +1847,64 @@ async function updateNavigation() {
 		);
 		await updateApproachRoute();
 	} else {
-		// Following GPX route
+		// Following GPX route with one-way progression
 		const progress = findNearestPointOnRoute(state.userPosition, state.gpxRoute);
-		const remainingDistance = calculateRemainingDistance(
-			progress.index,
-			state.gpxRoute
-		);
-		updateStatusText(`On route - ${formatDistance(remainingDistance)} remaining`);
-		updateVisibleRoute(progress.index);
+
+		// Check if user is significantly off-route
+		if (progress.distance > OFF_ROUTE_THRESHOLD) {
+			// User is off-route - guide them back to their current position on route
+			updateStatusText(
+				`Off route - navigating back (${formatDistance(progress.distance)} away)`
+			);
+			await updateRerouteToCurrentPosition(progress.index);
+		} else {
+			// User is on route - show normal status
+			const remainingDistance = calculateRemainingDistance(
+				progress.index,
+				state.gpxRoute
+			);
+			updateStatusText(
+				`On route - ${formatDistance(remainingDistance)} remaining`
+			);
+			// Clear any reroute when back on route
+			state.approachRoute = [];
+			updateVisibleRoute(progress.index);
+		}
+	}
+}
+
+// Update Reroute to Current Position on Route (for off-route scenarios)
+async function updateRerouteToCurrentPosition(routeIndex) {
+	if (!state.userPosition || state.gpxRoute.length === 0) return;
+
+	const start = state.userPosition;
+	// Route to the current progress point, not the beginning
+	const targetPoint = state.gpxRoute[routeIndex];
+
+	console.log(
+		"🗺️ Calculating reroute from",
+		start,
+		"to route at index",
+		routeIndex
+	);
+
+	try {
+		const route = await getOSRMRoute(start, targetPoint);
+		if (route && route.length > 0) {
+			console.log("✅ Reroute calculated:", route.length, "points");
+			state.approachRoute = route;
+
+			// Combine reroute with remaining GPX route from current position
+			const remainingRoute = state.gpxRoute.slice(routeIndex);
+			const combinedRoute = [...state.approachRoute, ...remainingRoute];
+			displayRoute(combinedRoute, "#F59E0B"); // Orange color for rerouting
+		}
+	} catch (error) {
+		console.error("Error getting reroute:", error);
+		// Fallback: draw straight line to current position
+		const remainingRoute = state.gpxRoute.slice(routeIndex);
+		const combinedRoute = [state.userPosition, ...remainingRoute];
+		displayRoute(combinedRoute, "#F59E0B"); // Orange color for rerouting
 	}
 }
 
@@ -2040,17 +2103,60 @@ function displayRoute(fullRoute, color) {
 	}
 }
 
-// Find Nearest Point on Route
+// Find Nearest Point on Route (One-way progression)
 function findNearestPointOnRoute(position, route) {
-	let minDistance = Infinity;
-	let nearestIndex = 0;
+	if (!state.hasReachedStart) {
+		// Before starting the route, just find the absolute nearest point
+		let minDistance = Infinity;
+		let nearestIndex = 0;
 
-	for (let i = 0; i < route.length; i++) {
+		for (let i = 0; i < route.length; i++) {
+			const distance = calculateDistance(position, route[i]);
+			if (distance < minDistance) {
+				minDistance = distance;
+				nearestIndex = i;
+			}
+		}
+
+		return { index: nearestIndex, distance: minDistance };
+	}
+
+	// Once we've started the route, enforce one-way progression
+	// Define a search window: look ahead from current position, and allow small backward tolerance
+	const BACKWARD_TOLERANCE = 5; // Allow going back max 5 points (in case of GPS drift)
+	const FORWARD_SEARCH_WINDOW = 200; // Search ahead up to 200 points
+
+	// Calculate search bounds
+	const searchStart = Math.max(0, state.currentRouteIndex - BACKWARD_TOLERANCE);
+	const searchEnd = Math.min(
+		route.length - 1,
+		state.currentRouteIndex + FORWARD_SEARCH_WINDOW
+	);
+
+	let minDistance = Infinity;
+	let nearestIndex = state.currentRouteIndex; // Default to current position
+
+	// Search within the forward window
+	for (let i = searchStart; i <= searchEnd; i++) {
 		const distance = calculateDistance(position, route[i]);
 		if (distance < minDistance) {
 			minDistance = distance;
 			nearestIndex = i;
 		}
+	}
+
+	// Only allow forward progression or small backward movements
+	// Update the current index if we've moved forward
+	if (nearestIndex >= state.currentRouteIndex) {
+		state.currentRouteIndex = nearestIndex;
+		state.maxRouteIndexReached = Math.max(
+			state.maxRouteIndexReached,
+			nearestIndex
+		);
+	} else {
+		// Allow small backward movement (within tolerance) for GPS drift
+		// but don't update maxRouteIndexReached
+		state.currentRouteIndex = nearestIndex;
 	}
 
 	return { index: nearestIndex, distance: minDistance };
@@ -2245,6 +2351,8 @@ function resetApp() {
 	state.previewRouteDecorator = null;
 	state.isNavigating = false;
 	state.hasReachedStart = false;
+	state.currentRouteIndex = 0;
+	state.maxRouteIndexReached = 0;
 	state.autoCenterEnabled = true;
 	state.startMarker = null;
 	state.endMarker = null;
