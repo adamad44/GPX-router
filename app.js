@@ -1071,6 +1071,27 @@ function startNavigation() {
 		initializeMap();
 	}
 
+	// Center map on the route start point for navigation
+	if (state.gpxRoute.length > 0) {
+		const startPoint = state.gpxRoute[0];
+		// Wait for map to be ready, then center on start
+		if (state.map.loaded()) {
+			state.map.easeTo({
+				center: [startPoint.lng, startPoint.lat],
+				zoom: 16,
+				duration: 1000,
+			});
+		} else {
+			state.map.once("load", () => {
+				state.map.easeTo({
+					center: [startPoint.lng, startPoint.lat],
+					zoom: 16,
+					duration: 1000,
+				});
+			});
+		}
+	}
+
 	// Add start and end markers
 	addRouteMarkers();
 
@@ -2199,7 +2220,7 @@ function centerOnLatLngWithOffset(latlng, zoom, animationOptions = {}) {
 			center: latlng,
 			zoom: targetZoom,
 			bearing: bearing, // Maintain current bearing
-			offset: [0, -offsetPixels], // Negative Y moves map down, user marker appears lower
+			offset: [0, offsetPixels], // Positive Y moves map up, user marker appears lower on screen
 			duration: duration,
 			easing: (t) => t * (2 - t), // Ease out quad
 		});
@@ -2213,7 +2234,7 @@ function centerOnLatLngWithOffset(latlng, zoom, animationOptions = {}) {
 
 		// Apply offset after jump
 		const point = map.project(latlng);
-		point.y -= offsetPixels;
+		point.y += offsetPixels;
 		const newCenter = map.unproject(point);
 		map.jumpTo({ center: newCenter });
 	}
@@ -2253,6 +2274,7 @@ function updateCenterButtonState() {
 	if (state.autoCenterEnabled) {
 		button.title = "GPS tracking on - Click to disable";
 		label.textContent = "Following";
+		button.style.opacity = "1";
 	} else {
 		button.title = "GPS tracking off - Click to enable";
 		label.textContent = "Recenter";
