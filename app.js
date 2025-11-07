@@ -45,6 +45,7 @@ const state = {
 	currentSimulatedSegmentIndex: 0,
 	distanceIntoSegment: 0, // in meters
 	lastRotationUpdateTime: 0, // throttle rotation updates
+	lastMovementTime: 0, // timestamp of last reliable movement-based heading
 };
 
 // Constants
@@ -1363,6 +1364,7 @@ function processNewPosition(latitude, longitude, accuracy, heading) {
 		if (distanceMoved > 2) {
 			// Only update if moved more than 2 meters
 			calculatedHeading = movementHeading;
+			state.lastMovementTime = Date.now();
 		}
 	}
 
@@ -1520,6 +1522,7 @@ function applyMapRotation() {
 	}
 
 	let heading = null;
+	const nowTs = Date.now();
 
 	if (state.rotationMode === "compass") {
 		// Compass mode logic remains the same
@@ -1532,24 +1535,31 @@ function applyMapRotation() {
 			heading = smoothHeading(heading, state.smoothedHeading, 0.3);
 		}
 	} else if (state.rotationMode === "route" && state.userPosition) {
-		// Route-up: derive heading from route geometry with a short lookahead for stability
-		let activeRoute = state.hasReachedStart
-			? state.gpxRoute
-			: state.approachRoute;
-		if (activeRoute && activeRoute.length > 1) {
-			const progress = findNearestPointOnRoute(state.userPosition, activeRoute);
-			// Compute a lookahead-based bearing (e.g., 40m ahead) for smoother orientation
-			heading = computeRouteHeading(activeRoute, progress.index, 40);
-		}
-		// Fallback to GPS heading if route-based heading fails
-		if (
-			heading === null &&
+		// Prefer recent GPS movement direction; fall back to route lookahead when stationary
+		const hasRecentMovement =
 			typeof state.gpsHeading === "number" &&
-			!isNaN(state.gpsHeading)
-		) {
+			!isNaN(state.gpsHeading) &&
+			state.lastMovementTime &&
+			nowTs - state.lastMovementTime < 4000; // 4s recency window
+
+		if (hasRecentMovement) {
 			heading = state.gpsHeading;
+		} else {
+			let activeRoute = state.hasReachedStart
+				? state.gpxRoute
+				: state.approachRoute;
+			if (activeRoute && activeRoute.length > 1) {
+				const progress = findNearestPointOnRoute(state.userPosition, activeRoute);
+				heading = computeRouteHeading(activeRoute, progress.index, 40);
+			}
+			if (
+				heading === null &&
+				typeof state.gpsHeading === "number" &&
+				!isNaN(state.gpsHeading)
+			) {
+				heading = state.gpsHeading;
+			}
 		}
-		// Apply smoothing for route mode as well (reduces abrupt jumps at bends)
 		if (heading !== null) {
 			heading = smoothHeading(heading, state.smoothedHeading || heading, 0.25);
 		}
@@ -1568,7 +1578,7 @@ function applyMapRotation() {
 
 	state.smoothedHeading = heading;
 	state.currentHeading = heading;
-	setMapBearing(-state.currentHeading);
+	setMapBearing(state.currentHeading);
 }
 
 // Helper function to get a point a certain distance ahead on the route
