@@ -28,6 +28,7 @@ const state = {
 	orientationListenerActive: false,
 	deviceHeading: null,
 	gpsHeading: null,
+	compassEventCount: 0,
 	voiceEnabled: false,
 	voiceSteps: [],
 	currentVoiceStepIndex: 0,
@@ -1502,16 +1503,24 @@ function handlePositionError(error) {
 async function enableDeviceCompass() {
 	try {
 		if (typeof window === "undefined") return;
-		if (state.orientationListenerActive) return;
+		if (state.orientationListenerActive) {
+			console.log("Device compass already active");
+			return;
+		}
+
+		console.log("Enabling device compass...");
 
 		if (
 			typeof DeviceOrientationEvent !== "undefined" &&
 			typeof DeviceOrientationEvent.requestPermission === "function"
 		) {
 			// iOS 13+ permission flow
+			console.log("Requesting device orientation permission (iOS)...");
 			const perm = await DeviceOrientationEvent.requestPermission();
+			console.log("Device orientation permission:", perm);
 			if (perm !== "granted") {
 				console.warn("Device orientation permission not granted");
+				updateStatusText("Compass permission denied");
 				return;
 			}
 		}
@@ -1519,8 +1528,10 @@ async function enableDeviceCompass() {
 		// Register listener
 		window.addEventListener("deviceorientation", onDeviceOrientation, true);
 		state.orientationListenerActive = true;
+		console.log("Device compass enabled successfully");
 	} catch (e) {
-		console.warn("Device orientation unavailable", e);
+		console.error("Device orientation unavailable", e);
+		updateStatusText("Compass not available on this device");
 	}
 }
 
@@ -1543,6 +1554,15 @@ function onDeviceOrientation(event) {
 	}
 
 	if (headingDeg !== null && !isNaN(headingDeg)) {
+		// Log occasionally for debugging (every 30 events ~ every 1 second)
+		if (!state.compassEventCount) state.compassEventCount = 0;
+		state.compassEventCount++;
+		if (state.compassEventCount % 30 === 0) {
+			console.log(
+				`Compass heading: ${headingDeg.toFixed(1)}°, mode: ${state.rotationMode}`
+			);
+		}
+
 		state.deviceHeading = headingDeg;
 		// Always update current heading for the arrow, regardless of rotation mode
 		state.currentHeading = headingDeg;
@@ -1552,11 +1572,11 @@ function onDeviceOrientation(event) {
 			updateUserMarker(
 				state.userPosition[0],
 				state.userPosition[1],
-				state.userAccuracyCircle ? state.userAccuracyCircle.getRadius() : 10
+				state.userAccuracyCircle ? state.userAccuracyCircle.accuracy : 10
 			);
 		}
 
-		// Apply map rotation only if in compass mode
+		// In compass mode, apply rotation immediately since compass updates are frequent
 		if (state.rotationMode === "compass") {
 			applyMapRotation();
 		}
@@ -1600,6 +1620,14 @@ function applyMapRotation() {
 			heading = state.gpsHeading;
 		}
 		if (heading !== null) {
+			// Initialize smoothedHeading if not set
+			if (
+				state.smoothedHeading === null ||
+				state.smoothedHeading === undefined ||
+				isNaN(state.smoothedHeading)
+			) {
+				state.smoothedHeading = heading;
+			}
 			heading = smoothHeading(heading, state.smoothedHeading, 0.3);
 		}
 	} else if (state.rotationMode === "route" && state.userPosition) {
