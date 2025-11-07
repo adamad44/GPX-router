@@ -340,8 +340,8 @@ function updateSimulation() {
 
 	// Update the map with the new simulated position
 	processNewPosition(
-		state.simulatedPosition.lat,
-		state.simulatedPosition.lng,
+		state.simulatedPosition[0], // Use array index 0 for latitude
+		state.simulatedPosition[1], // Use array index 1 for longitude
 		10 // Fake accuracy
 	);
 }
@@ -2236,17 +2236,23 @@ function centerOnLatLngWithOffset(latlng, zoom, animationOptions = {}) {
 	const map = state.map;
 	const targetZoom = zoom ?? map.getZoom() ?? 16;
 
-	// Get map container size
+	// Calculate the new center point manually to account for rotation
 	const canvas = map.getCanvas();
 	const mapHeight = canvas.clientHeight;
+	const verticalOffset = mapHeight * (0.5 - USER_VIEW_OFFSET_RATIO); // Pixels to shift center up
 
-	// Calculate offset in pixels (40% from bottom = 60% from top)
-	const offsetPixels = mapHeight * USER_VIEW_OFFSET_RATIO;
+	// Project the user's location to a screen point
+	const screenPoint = map.project(latlng);
 
-	// Get current bearing
-	const bearing = map.getBearing();
+	// Apply the offset
+	const newCenterScreenPoint = {
+		x: screenPoint.x,
+		y: screenPoint.y - verticalOffset, // Subtract to move the center point up on the screen
+	};
 
-	// Default animation settings
+	// Unproject the new screen point to a map coordinate
+	const newCenterLatLng = map.unproject(newCenterScreenPoint);
+
 	const animate = animationOptions.animate !== false;
 	const duration =
 		animationOptions.duration !== undefined
@@ -2254,28 +2260,19 @@ function centerOnLatLngWithOffset(latlng, zoom, animationOptions = {}) {
 			: 500;
 
 	if (animate) {
-		// Use easeTo for smooth animation - compass mode uses 150ms, manual uses 500ms
 		map.easeTo({
-			center: latlng,
+			center: newCenterLatLng, // Use the manually calculated center
 			zoom: targetZoom,
-			bearing: bearing, // Maintain current bearing
-			offset: [0, offsetPixels], // Positive Y moves map up, user marker appears lower on screen
+			bearing: map.getBearing(),
 			duration: duration,
 			easing: (t) => t * (2 - t), // Ease out quad
 		});
 	} else {
-		// Instant jump
 		map.jumpTo({
-			center: latlng,
+			center: newCenterLatLng,
 			zoom: targetZoom,
-			bearing: bearing,
+			bearing: map.getBearing(),
 		});
-
-		// Apply offset after jump
-		const point = map.project(latlng);
-		point.y += offsetPixels;
-		const newCenter = map.unproject(point);
-		map.jumpTo({ center: newCenter });
 	}
 }
 
