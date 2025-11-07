@@ -1557,7 +1557,8 @@ function applyMapRotation() {
 			);
 
 			if (lookAheadPoint) {
-				heading = calculateBearing(state.userPosition, lookAheadPoint);
+				const nearestPointOnRoute = activeRoute[progress.index];
+				heading = calculateBearing(nearestPointOnRoute, lookAheadPoint);
 			}
 		}
 
@@ -1604,18 +1605,13 @@ function getPointAhead(route, startIndex, distanceAhead) {
 function setMapBearing(angleDeg) {
 	if (!state.map) return;
 
-	// Route mode needs instant updates, compass mode gets smooth transitions
-	if (state.rotationMode === "route") {
-		// Instant rotation for route mode
-		state.map.jumpTo({ bearing: angleDeg });
-	} else {
-		// Smooth rotation for compass mode (200ms)
-		state.map.easeTo({
-			bearing: angleDeg,
-			duration: 200,
-			easing: (t) => t, // Linear easing
-		});
-	}
+	// Use a smooth easeTo for ALL rotation modes to prevent jerky movements.
+	// A short duration keeps it feeling responsive.
+	state.map.easeTo({
+		bearing: angleDeg,
+		duration: 250, // A quick but smooth 250ms animation
+		easing: (t) => t, // Linear easing for a consistent rotation speed
+	});
 }
 
 // Update User Marker with heading indicator
