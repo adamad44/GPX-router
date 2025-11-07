@@ -1776,9 +1776,12 @@ async function updateApproachRoute() {
 	const start = state.userPosition;
 	const end = state.gpxRoute[0];
 
+	console.log("🗺️ Calculating approach route from", start, "to", end);
+
 	try {
 		const route = await getOSRMRoute(start, end);
 		if (route && route.length > 0) {
+			console.log("✅ Approach route calculated:", route.length, "points");
 			state.approachRoute = route;
 
 			// Combine approach route with GPX route for seamless transition
@@ -1788,6 +1791,12 @@ async function updateApproachRoute() {
 			const visibleRoute = getLookAheadRoute(combinedRoute, 0);
 			const previewRoute = getPreviewRoute(combinedRoute, 0);
 
+			console.log(
+				"📍 Displaying approach route - visible:",
+				visibleRoute.length,
+				"preview:",
+				previewRoute.length
+			);
 			displayRoute(visibleRoute, "#4285F4", 0.8, 6);
 
 			// Display preview if enabled
@@ -1966,24 +1975,26 @@ function displayRoute(route, color, opacity = 0.8, weight = 6) {
 			},
 		});
 
-		// Add directional arrows using symbol layer
-		state.map.addLayer({
-			id: "visible-route-arrows",
-			type: "symbol",
-			source: "visible-route",
-			layout: {
-				"symbol-placement": "line",
-				"symbol-spacing": 100,
-				"icon-image": "arrow",
-				"icon-size": 0.5,
-				"icon-rotation-alignment": "map",
-				"icon-allow-overlap": true,
-				"icon-ignore-placement": true,
-			},
-			paint: {
-				"icon-opacity": opacity,
-			},
-		});
+		// Add directional arrows using symbol layer (only if arrow icon exists)
+		if (state.map.hasImage("arrow")) {
+			state.map.addLayer({
+				id: "visible-route-arrows",
+				type: "symbol",
+				source: "visible-route",
+				layout: {
+					"symbol-placement": "line",
+					"symbol-spacing": 100,
+					"icon-image": "arrow",
+					"icon-size": 0.5,
+					"icon-rotation-alignment": "map",
+					"icon-allow-overlap": true,
+					"icon-ignore-placement": true,
+				},
+				paint: {
+					"icon-opacity": opacity,
+				},
+			});
+		}
 
 		state.visibleRoutePolyline = true; // Marker for cleanup
 	}
@@ -2032,23 +2043,26 @@ function displayPreviewRoute(route) {
 			},
 		});
 
-		state.map.addLayer({
-			id: "preview-route-arrows",
-			type: "symbol",
-			source: "preview-route-src",
-			layout: {
-				"symbol-placement": "line",
-				"symbol-spacing": 100,
-				"icon-image": "arrow",
-				"icon-size": 0.5,
-				"icon-rotation-alignment": "map",
-				"icon-allow-overlap": true,
-				"icon-ignore-placement": true,
-			},
-			paint: {
-				"icon-opacity": 0.8,
-			},
-		});
+		// Add arrows only if icon exists
+		if (state.map.hasImage("arrow")) {
+			state.map.addLayer({
+				id: "preview-route-arrows",
+				type: "symbol",
+				source: "preview-route-src",
+				layout: {
+					"symbol-placement": "line",
+					"symbol-spacing": 100,
+					"icon-image": "arrow",
+					"icon-size": 0.5,
+					"icon-rotation-alignment": "map",
+					"icon-allow-overlap": true,
+					"icon-ignore-placement": true,
+				},
+				paint: {
+					"icon-opacity": 0.8,
+				},
+			});
+		}
 
 		state.previewRoutePolyline = true;
 	}
@@ -2097,23 +2111,26 @@ function displayPreviewRouteApproach(route) {
 			},
 		});
 
-		state.map.addLayer({
-			id: "preview-route-arrows",
-			type: "symbol",
-			source: "preview-route-src",
-			layout: {
-				"symbol-placement": "line",
-				"symbol-spacing": 100,
-				"icon-image": "arrow",
-				"icon-size": 0.5,
-				"icon-rotation-alignment": "map",
-				"icon-allow-overlap": true,
-				"icon-ignore-placement": true,
-			},
-			paint: {
-				"icon-opacity": 0.8,
-			},
-		});
+		// Add arrows only if icon exists
+		if (state.map.hasImage("arrow")) {
+			state.map.addLayer({
+				id: "preview-route-arrows",
+				type: "symbol",
+				source: "preview-route-src",
+				layout: {
+					"symbol-placement": "line",
+					"symbol-spacing": 100,
+					"icon-image": "arrow",
+					"icon-size": 0.5,
+					"icon-rotation-alignment": "map",
+					"icon-allow-overlap": true,
+					"icon-ignore-placement": true,
+				},
+				paint: {
+					"icon-opacity": 0.8,
+				},
+			});
+		}
 
 		state.previewRoutePolyline = true;
 	}
@@ -2252,12 +2269,13 @@ function centerMapOnUser() {
 		state.autoCenterEnabled = true;
 		updateCenterButtonState();
 		// Use zoom level 17 for car navigation - appropriate for seeing road details
+		// Faster animation (250ms) for responsive feel
 		centerOnLatLngWithOffset(
 			[state.userPosition.lng, state.userPosition.lat],
 			17,
 			{
 				animate: true,
-				duration: 0.5,
+				duration: 0.25,
 			}
 		);
 	}
