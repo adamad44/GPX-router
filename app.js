@@ -358,9 +358,9 @@ function updateSimulationButton(isPlaying) {
 
 // Interpolate between two coordinates
 function interpolate(p1, p2, fraction) {
-	const lat = p1[0] + (p2[0] - p1[0]) * fraction;
-	const lon = p1[1] + (p2[1] - p1[1]) * fraction;
-	return [lat, lon];
+	const lat = p1.lat + (p2.lat - p1.lat) * fraction;
+	const lon = p1.lng + (p2.lng - p1.lng) * fraction;
+	return [lat, lon]; // Return as array for processNewPosition
 }
 
 // --- End Simulation Functions ---
