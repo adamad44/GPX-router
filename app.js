@@ -46,10 +46,16 @@ const state = {
 	distanceIntoSegment: 0, // in meters
 	lastRotationUpdateTime: 0, // throttle rotation updates
 	lastMovementTime: 0, // timestamp of last reliable movement-based heading
+	// GPS Smoothing State
+	targetPosition: null, // Target position from GPS update
+	interpolatedPosition: null, // Current smoothly interpolated position
+	smoothingAnimationFrame: null, // Animation frame ID
+	lastUpdateTime: 0, // Timestamp of last GPS update
 };
 
 // Constants
 const LOOK_AHEAD_DISTANCE = 1609.34; // 1 mile in meters
+const GPS_SMOOTHING_DURATION = 1000; // Milliseconds to interpolate between GPS updates (1 second)
 const START_POINT_THRESHOLD = 50; // 50 meters to consider "reached start"
 const OSRM_API = "https://router.project-osrm.org/route/v1/driving/";
 // Ratio controlling vertical offset of the user's position when auto-centering.
@@ -1383,22 +1389,25 @@ function processNewPosition(latitude, longitude, accuracy, heading) {
 
 	state.lastPosition = [latitude, longitude];
 
-	// Update or create user marker
-	updateUserMarker(latitude, longitude, accuracy);
-
-	// Center map on user if auto-center is enabled
-	if (state.autoCenterEnabled) {
-		// When following, jump the center to avoid cancelling the rotation animation
-		const instantFollow = state.rotationMode !== "off";
-		const duration = state.rotationMode === "compass" ? 0.15 : 0.5;
-		centerOnLatLngWithOffset(
-			[longitude, latitude],
-			Math.max(state.map.getZoom(), 16),
-			instantFollow
-				? { animate: false } // do not animate center while rotating
-				: { duration: duration }
-		);
+	// Initialize interpolated position if this is the first update
+	if (!state.interpolatedPosition) {
+		state.interpolatedPosition = [latitude, longitude];
 	}
+
+	// Set target position and start smooth interpolation
+	state.targetPosition = [latitude, longitude];
+	state.lastUpdateTime = Date.now();
+
+	// Cancel any existing animation
+	if (state.smoothingAnimationFrame) {
+		cancelAnimationFrame(state.smoothingAnimationFrame);
+	}
+
+	// Start new smoothing animation
+	state.smoothingAnimationFrame = requestAnimationFrame(smoothPositionUpdate);
+
+	// Update or create user marker (initial creation only, position will be updated by animation)
+	updateUserMarker(latitude, longitude, accuracy);
 
 	// Rotate map if rotation mode is enabled
 	if (state.rotationMode !== "off") {
@@ -1410,6 +1419,64 @@ function processNewPosition(latitude, longitude, accuracy, heading) {
 
 	// Check voice guidance
 	checkVoiceGuidance();
+}
+
+// GPS Smoothing Animation
+function smoothPositionUpdate() {
+	if (!state.targetPosition || !state.interpolatedPosition) {
+		return;
+	}
+
+	const now = Date.now();
+	const elapsed = now - state.lastUpdateTime;
+	const progress = Math.min(elapsed / GPS_SMOOTHING_DURATION, 1);
+
+	// Use easeOutQuad for smooth deceleration
+	const easeProgress = 1 - Math.pow(1 - progress, 2);
+
+	// Interpolate position
+	const startLat = state.interpolatedPosition[0];
+	const startLon = state.interpolatedPosition[1];
+	const targetLat = state.targetPosition[0];
+	const targetLon = state.targetPosition[1];
+
+	const currentLat = startLat + (targetLat - startLat) * easeProgress;
+	const currentLon = startLon + (targetLon - startLon) * easeProgress;
+
+	state.interpolatedPosition = [currentLat, currentLon];
+
+	// Update marker with interpolated position
+	if (state.userMarker) {
+		state.userMarker.setLngLat([currentLon, currentLat]);
+	}
+
+	// Update accuracy circle position
+	if (state.map.getSource("user-accuracy")) {
+		state.map.getSource("user-accuracy").setData({
+			type: "Feature",
+			geometry: {
+				type: "Point",
+				coordinates: [currentLon, currentLat],
+			},
+		});
+	}
+
+	// Update map center if auto-center is enabled
+	if (state.autoCenterEnabled) {
+		const instantFollow = state.rotationMode !== "off";
+		centerOnLatLngWithOffset(
+			[currentLon, currentLat],
+			Math.max(state.map.getZoom(), 16),
+			{ animate: false } // Don't animate center during smooth interpolation
+		);
+	}
+
+	// Continue animation if not yet reached target
+	if (progress < 1) {
+		state.smoothingAnimationFrame = requestAnimationFrame(smoothPositionUpdate);
+	} else {
+		state.smoothingAnimationFrame = null;
+	}
 }
 
 // Handle Position Error
@@ -1715,24 +1782,15 @@ function updateUserMarker(lat, lon, accuracy) {
 
 		state.userAccuracyCircle = { lat, lon, accuracy };
 	} else {
-		// Update marker position and rotation
-		state.userMarker.setLngLat([lon, lat]);
+		// Update marker rotation only (position is handled by smoothing animation)
 		const markerEl = state.userMarker.getElement();
 		const wrapper = markerEl.querySelector(".user-marker-wrapper");
 		if (wrapper) {
 			wrapper.style.transform = `rotate(${arrowRotation}deg)`;
 		}
 
-		// Update accuracy circle
+		// Update accuracy circle radius only (position is handled by smoothing animation)
 		if (state.map.getSource("user-accuracy")) {
-			state.map.getSource("user-accuracy").setData({
-				type: "Feature",
-				geometry: {
-					type: "Point",
-					coordinates: [lon, lat],
-				},
-			});
-
 			// Update radius
 			state.map.setPaintProperty("user-accuracy-circle", "circle-radius", {
 				stops: [
