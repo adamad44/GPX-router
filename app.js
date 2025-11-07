@@ -1476,17 +1476,15 @@ function applyMapRotation() {
 			heading = state.gpsHeading;
 		}
 
-		// Apply stronger smoothing for route mode (80% of the change for quick, responsive rotation)
-		if (heading !== null) {
-			heading = smoothHeading(heading, state.smoothedHeading, 0.8);
-		}
+		// NO SMOOTHING for route mode - use raw heading for instant updates
+		// (smoothing removed as it causes jerky small incremental rotations)
 	}
 
 	if (heading === null || isNaN(heading)) {
 		return;
 	}
 
-	// Update smoothed heading for next iteration
+	// Update smoothed heading for next iteration (only used by compass mode)
 	state.smoothedHeading = heading;
 	state.currentHeading = heading;
 
@@ -1514,7 +1512,7 @@ function setMapBearing(angleDeg) {
 
 	// Route mode needs faster, more responsive rotation
 	const duration = state.rotationMode === "route" ? 0.1 : 0.2;
-	
+
 	const rotationOptions = {
 		animate: true,
 		duration: duration, // Faster in route mode
