@@ -1845,7 +1845,11 @@ async function updateApproachRoute() {
 
 // Get Route from OSRM API
 async function getOSRMRoute(start, end) {
-	const url = `${OSRM_API}${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson&steps=true&annotations=true`;
+	// Normalize coordinates to handle both array and object formats
+	const startCoords = getCoords(start);
+	const endCoords = getCoords(end);
+
+	const url = `${OSRM_API}${startCoords.lng},${startCoords.lat};${endCoords.lng},${endCoords.lat}?overview=full&geometries=geojson&steps=true&annotations=true`;
 
 	try {
 		const response = await fetch(url);
