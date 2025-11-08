@@ -1270,10 +1270,14 @@ function initializeMap() {
 		}
 	});
 
-	// Disable auto-center when user manually pans the map
-	state.map.on("dragstart", () => {
-		state.autoCenterEnabled = false;
-		updateCenterButtonState();
+	// Disable auto-center when user manually moves the map (pan, zoom, etc.)
+	state.map.on("movestart", (e) => {
+		// This check is crucial: it ensures we only disable auto-center on real user input (mouse, touch)
+		// and not when our own code moves the map (e.g., during recentering).
+		if (e.originalEvent) {
+			state.autoCenterEnabled = false;
+			updateCenterButtonState();
+		}
 	});
 
 	// Initialize button labels
