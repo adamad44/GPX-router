@@ -227,95 +227,93 @@
 				<!-- Map Container -->
 				<div id="map"></div>
 
-				<!-- Navigation UI -->
-				<div id="nav-ui">
-					<div id="status-bar">
-						<div id="status-text">Waiting for GPS...</div>
-						<div id="distance-info"></div>
-					</div>
+				<!-- Navigation UI Elements are now direct children -->
+				<div id="status-bar">
+					<div id="status-text">Waiting for GPS...</div>
+					<div id="distance-info"></div>
+				</div>
 
-					<!-- Current Speed Display -->
-					<div id="speed-indicator" class="speed-indicator hidden">
-						<div class="current-speed-display">
-							<span id="current-speed-value">0</span>
-							<span class="speed-unit">mph</span>
-						</div>
+				<!-- Current Speed Display -->
+				<div id="speed-indicator" class="speed-indicator hidden">
+					<div class="current-speed-display">
+						<span id="current-speed-value">0</span>
+						<span class="speed-unit">mph</span>
 					</div>
+				</div>
 
-					<div class="control-buttons-container">
-						<button
-							id="toggle-preview-button"
-							class="control-button with-label"
-							title="Show/hide full route preview"
+				<div class="control-buttons-container">
+					<button
+						id="toggle-preview-button"
+						class="control-button with-label"
+						title="Show/hide full route preview"
+					>
+						<svg
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
 						>
-							<svg
-								width="16"
-								height="16"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-							>
-								<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-								<circle cx="12" cy="12" r="3"></circle>
-							</svg>
-							<span class="button-label">Preview</span>
-						</button>
-						<button
-							id="toggle-rotation-button"
-							class="control-button with-label"
-							title="Change map rotation mode"
+							<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+							<circle cx="12" cy="12" r="3"></circle>
+						</svg>
+						<span class="button-label">Preview</span>
+					</button>
+					<button
+						id="toggle-rotation-button"
+						class="control-button with-label"
+						title="Change map rotation mode"
+					>
+						<svg
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
 						>
-							<svg
-								width="16"
-								height="16"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-							>
-								<circle cx="12" cy="12" r="10"></circle>
-								<polygon points="12,2 10,8 14,8"></polygon>
-							</svg>
-							<span class="button-label">Compass</span>
-						</button>
-						<button
-							id="center-button"
-							class="control-button primary with-label"
-							title="Recenter map on your location"
+							<circle cx="12" cy="12" r="10"></circle>
+							<polygon points="12,2 10,8 14,8"></polygon>
+						</svg>
+						<span class="button-label">Compass</span>
+					</button>
+					<button
+						id="center-button"
+						class="control-button primary with-label"
+						title="Recenter map on your location"
+					>
+						<svg
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
 						>
-							<svg
-								width="16"
-								height="16"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-							>
-								<circle cx="12" cy="12" r="10"></circle>
-								<circle cx="12" cy="12" r="3"></circle>
-							</svg>
-							<span class="button-label">Recenter</span>
-						</button>
-						<button
-							id="reset-button"
-							class="control-button with-label danger"
-							title="End navigation and choose new route"
+							<circle cx="12" cy="12" r="10"></circle>
+							<circle cx="12" cy="12" r="3"></circle>
+						</svg>
+						<span class="button-label">Recenter</span>
+					</button>
+					<button
+						id="reset-button"
+						class="control-button with-label danger"
+						title="End navigation and choose new route"
+					>
+						<svg
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
 						>
-							<svg
-								width="16"
-								height="16"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-							>
-								<line x1="18" y1="6" x2="6" y2="18"></line>
-								<line x1="6" y1="6" x2="18" y2="18"></line>
-							</svg>
-							<span class="button-label">Exit</span>
-						</button>
-					</div>
+							<line x1="18" y1="6" x2="6" y2="18"></line>
+							<line x1="6" y1="6" x2="18" y2="18"></line>
+						</svg>
+						<span class="button-label">Exit</span>
+					</button>
 				</div>
 
 				<!-- Simulation Controls -->
