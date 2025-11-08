@@ -496,14 +496,16 @@ body {
 	align-items: baseline;
 	justify-content: center;
 	gap: 6px;
-	min-width: 85px;
+	min-width: 95px;
+	font-variant-numeric: tabular-nums;
 }
 
 #current-speed-value {
-	font-size: 32px;
+	font-size: 30px;
 	font-weight: 700;
 	color: #1a1a1a;
 	line-height: 1;
+	font-variant-numeric: tabular-nums;
 }
 
 .speed-unit {

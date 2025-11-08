@@ -1338,8 +1338,8 @@ function processNewPosition(latitude, longitude, accuracy, heading) {
 		const now = Date.now();
 		const timeDelta = (now - state.lastSpeedUpdate) / 1000; // seconds
 
-		if (timeDelta >= 0.5) {
-			// Update speed every 0.5 seconds for more responsiveness
+		if (timeDelta >= 0.3) {
+			// Update speed every 0.3 seconds for more responsiveness
 			const distanceMoved = calculateDistance(state.lastPosition, [
 				latitude,
 				longitude,
@@ -1347,12 +1347,12 @@ function processNewPosition(latitude, longitude, accuracy, heading) {
 			const speedMs = distanceMoved / timeDelta; // m/s
 			const instantSpeed = speedMs * 2.23694; // Convert to mph
 
-			// Apply smoothing to avoid jittery readings
+			// Minimal smoothing - just 20% to reduce GPS noise
 			if (state.currentSpeed === 0) {
 				state.currentSpeed = instantSpeed;
 			} else {
-				// Exponential moving average for smooth speed changes
-				state.currentSpeed = state.currentSpeed * 0.6 + instantSpeed * 0.4;
+				// Light exponential moving average - mostly use new data
+				state.currentSpeed = state.currentSpeed * 0.2 + instantSpeed * 0.8;
 			}
 
 			state.lastSpeedUpdate = now;
@@ -2286,8 +2286,8 @@ function updateSpeedDisplay() {
 		speedIndicator.classList.remove("hidden");
 	}
 
-	// Update current speed (round to nearest whole number)
-	const speed = Math.round(state.currentSpeed);
+	// Update current speed with one decimal place for more precision
+	const speed = state.currentSpeed.toFixed(1);
 	currentSpeedValue.textContent = speed;
 }
 
