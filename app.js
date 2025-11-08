@@ -40,7 +40,7 @@ const state = {
 	selectedRouteForPreview: null,
 	// Simulation State
 	isSimulating: false,
-	simulationSpeed: 0, // in km/h
+	simulationSpeed: 0, // in mph
 	simulationInterval: null,
 	simulatedPosition: null,
 	currentSimulatedSegmentIndex: 0,
@@ -56,8 +56,8 @@ const state = {
 	currentRouteIndex: 0, // Current furthest point reached on the route (one-way progression)
 	maxRouteIndexReached: 0, // Maximum index ever reached (prevents backward jumps)
 	// Speed Tracking
-	currentSpeed: 0, // Current speed in km/h
-	currentSpeedLimit: null, // Current speed limit in km/h
+	currentSpeed: 0, // Current speed in mph
+	currentSpeedLimit: null, // Current speed limit in mph
 	lastSpeedUpdate: 0, // Timestamp of last speed calculation
 	speedLimitCache: new Map(), // Cache for speed limits by location
 };
@@ -328,7 +328,7 @@ function updateSimulation() {
 		return;
 	}
 
-	const speedMetersPerSecond = (state.simulationSpeed * 1000) / 3600;
+	const speedMetersPerSecond = (state.simulationSpeed * 1609.34) / 3600; // Convert mph to m/s
 	let distanceToTravel = speedMetersPerSecond; // Travel for 1 second
 
 	while (distanceToTravel > 0) {
@@ -1348,7 +1348,7 @@ function processNewPosition(latitude, longitude, accuracy, heading) {
 				longitude,
 			]);
 			const speedMs = distanceMoved / timeDelta; // m/s
-			state.currentSpeed = speedMs * 3.6; // Convert to km/h
+			state.currentSpeed = speedMs * 2.23694; // Convert to mph
 			state.lastSpeedUpdate = now;
 
 			// Update speed display
@@ -2293,8 +2293,8 @@ function updateSpeedDisplay() {
 		speedLimitValue.textContent = state.currentSpeedLimit;
 
 		// Add speeding indicator if over limit
-		if (speed > state.currentSpeedLimit + 2) {
-			// 2 km/h tolerance
+		if (speed > state.currentSpeedLimit + 1) {
+			// 1 mph tolerance
 			speedIndicator.classList.add("speeding");
 		} else {
 			speedIndicator.classList.remove("speeding");
@@ -2352,12 +2352,13 @@ async function fetchSpeedLimit(lat, lng) {
 
 			// Parse speed limit (handle different formats like "30", "30 mph", etc.)
 			if (maxspeed) {
-				// Convert mph to km/h if needed
+				// Keep as mph if specified, or convert km/h to mph
 				if (maxspeed.includes("mph")) {
-					const mph = parseInt(maxspeed);
-					maxspeed = Math.round(mph * 1.60934);
-				} else {
 					maxspeed = parseInt(maxspeed);
+				} else {
+					// Assume km/h, convert to mph
+					const kmh = parseInt(maxspeed);
+					maxspeed = Math.round(kmh / 1.60934);
 				}
 
 				if (!isNaN(maxspeed) && maxspeed > 0) {
