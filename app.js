@@ -124,7 +124,6 @@ let selectedTestCentre = null;
 document.addEventListener("DOMContentLoaded", () => {
 	initializeEventListeners();
 	loadTestCentres();
-	preventZoom();
 
 	// Load voices for speech synthesis
 	if (window.speechSynthesis) {
@@ -136,51 +135,6 @@ document.addEventListener("DOMContentLoaded", () => {
 		window.speechSynthesis.getVoices();
 	}
 });
-
-// Prevent pinch zoom and double-tap zoom on Safari/iOS
-function preventZoom() {
-	// More aggressive double-tap zoom prevention for Safari
-	let lastTouchEnd = 0;
-	document.addEventListener(
-		"touchend",
-		(event) => {
-			const now = Date.now();
-			const timeDiff = now - lastTouchEnd;
-
-			// Prevent double tap if within 500ms
-			if (timeDiff < 500 && timeDiff > 0) {
-				event.preventDefault();
-				event.stopImmediatePropagation();
-			}
-			lastTouchEnd = now;
-		},
-		{ passive: false, capture: true }
-	);
-
-	// Prevent pinch zoom
-	document.addEventListener("gesturestart", (e) => {
-		e.preventDefault();
-	});
-
-	document.addEventListener("gesturechange", (e) => {
-		e.preventDefault();
-	});
-
-	document.addEventListener("gestureend", (e) => {
-		e.preventDefault();
-	});
-
-	// Prevent touchmove zoom (two-finger zoom)
-	document.addEventListener(
-		"touchmove",
-		(e) => {
-			if (e.touches.length > 1) {
-				e.preventDefault();
-			}
-		},
-		{ passive: false }
-	);
-}
 
 function initializeEventListeners() {
 	const fileInput = document.getElementById("gpx-file-input");
@@ -1270,15 +1224,18 @@ function initializeMap() {
 		}
 	});
 
-	// Disable auto-center when user manually moves the map (pan, zoom, etc.)
-	state.map.on("movestart", (e) => {
-		// This check is crucial: it ensures we only disable auto-center on real user input (mouse, touch)
-		// and not when our own code moves the map (e.g., during recentering).
+	// Disable auto-center when user manually interacts with the map in any way.
+	const disableAutoCenter = (e) => {
+		// Only disable if the event was triggered by a real user action (touch, mouse)
 		if (e.originalEvent) {
 			state.autoCenterEnabled = false;
 			updateCenterButtonState();
 		}
-	});
+	};
+
+	state.map.on("movestart", disableAutoCenter);
+	state.map.on("zoomstart", disableAutoCenter);
+	state.map.on("pitchstart", disableAutoCenter);
 
 	// Initialize button labels
 	const rotationButton = document.getElementById("toggle-rotation-button");
