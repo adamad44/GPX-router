@@ -55,6 +55,11 @@ const state = {
 	// Route Progress Tracking (One-way navigation)
 	currentRouteIndex: 0, // Current furthest point reached on the route (one-way progression)
 	maxRouteIndexReached: 0, // Maximum index ever reached (prevents backward jumps)
+	// Speed Tracking
+	currentSpeed: 0, // Current speed in km/h
+	currentSpeedLimit: null, // Current speed limit in km/h
+	lastSpeedUpdate: 0, // Timestamp of last speed calculation
+	speedLimitCache: new Map(), // Cache for speed limits by location
 };
 
 // Constants
@@ -1046,6 +1051,15 @@ function startNavigation() {
 	state.currentRouteIndex = 0;
 	state.maxRouteIndexReached = 0;
 	state.approachRoute = [];
+	state.currentSpeed = 0;
+	state.currentSpeedLimit = null;
+	state.lastSpeedUpdate = 0;
+
+	// Show speed indicator
+	const speedIndicator = document.getElementById("speed-indicator");
+	if (speedIndicator) {
+		speedIndicator.classList.remove("hidden");
+	}
 
 	// Initialize map if not already done
 	if (!state.map) {
@@ -1321,6 +1335,31 @@ function handlePositionUpdate(position) {
 // Process a new position (real or simulated)
 function processNewPosition(latitude, longitude, accuracy, heading) {
 	state.userPosition = [latitude, longitude];
+
+	// Calculate speed from position changes
+	if (state.lastPosition) {
+		const now = Date.now();
+		const timeDelta = (now - state.lastSpeedUpdate) / 1000; // seconds
+
+		if (timeDelta >= 1) {
+			// Update speed every second
+			const distanceMoved = calculateDistance(state.lastPosition, [
+				latitude,
+				longitude,
+			]);
+			const speedMs = distanceMoved / timeDelta; // m/s
+			state.currentSpeed = speedMs * 3.6; // Convert to km/h
+			state.lastSpeedUpdate = now;
+
+			// Update speed display
+			updateSpeedDisplay();
+		}
+	} else {
+		state.lastSpeedUpdate = Date.now();
+	}
+
+	// Fetch speed limit for current location (throttled)
+	fetchSpeedLimit(latitude, longitude);
 
 	// Calculate heading if not provided by GPS or if we have movement
 	let calculatedHeading = heading;
@@ -2232,6 +2271,107 @@ function updateStatusText(text) {
 	document.getElementById("status-text").textContent = text;
 }
 
+// Update Speed Display
+function updateSpeedDisplay() {
+	const speedIndicator = document.getElementById("speed-indicator");
+	const currentSpeedValue = document.getElementById("current-speed-value");
+	const speedLimitValue = document.getElementById("speed-limit-value");
+
+	if (!speedIndicator || !currentSpeedValue) return;
+
+	// Show speed indicator when navigating
+	if (state.isNavigating) {
+		speedIndicator.classList.remove("hidden");
+	}
+
+	// Update current speed
+	const speed = Math.round(state.currentSpeed);
+	currentSpeedValue.textContent = speed;
+
+	// Update speed limit if available
+	if (state.currentSpeedLimit && speedLimitValue) {
+		speedLimitValue.textContent = state.currentSpeedLimit;
+
+		// Add speeding indicator if over limit
+		if (speed > state.currentSpeedLimit + 2) {
+			// 2 km/h tolerance
+			speedIndicator.classList.add("speeding");
+		} else {
+			speedIndicator.classList.remove("speeding");
+		}
+	}
+}
+
+// Fetch Speed Limit from OpenStreetMap
+let lastSpeedLimitFetch = 0;
+const SPEED_LIMIT_FETCH_INTERVAL = 5000; // Fetch every 5 seconds
+
+async function fetchSpeedLimit(lat, lng) {
+	const now = Date.now();
+
+	// Throttle requests
+	if (now - lastSpeedLimitFetch < SPEED_LIMIT_FETCH_INTERVAL) {
+		return;
+	}
+
+	lastSpeedLimitFetch = now;
+
+	// Check cache first (within 50m radius)
+	const cacheKey = `${Math.round(lat * 1000)},${Math.round(lng * 1000)}`;
+	if (state.speedLimitCache.has(cacheKey)) {
+		state.currentSpeedLimit = state.speedLimitCache.get(cacheKey);
+		updateSpeedDisplay();
+		return;
+	}
+
+	try {
+		// Use Overpass API to fetch speed limit data
+		const radius = 50; // meters
+		const query = `
+			[out:json];
+			way(around:${radius},${lat},${lng})["maxspeed"];
+			out body;
+		`;
+
+		const response = await fetch("https://overpass-api.de/api/interpreter", {
+			method: "POST",
+			body: query,
+		});
+
+		if (!response.ok) {
+			console.warn("Failed to fetch speed limit data");
+			return;
+		}
+
+		const data = await response.json();
+
+		if (data.elements && data.elements.length > 0) {
+			// Get the first road with a maxspeed tag
+			const road = data.elements[0];
+			let maxspeed = road.tags.maxspeed;
+
+			// Parse speed limit (handle different formats like "30", "30 mph", etc.)
+			if (maxspeed) {
+				// Convert mph to km/h if needed
+				if (maxspeed.includes("mph")) {
+					const mph = parseInt(maxspeed);
+					maxspeed = Math.round(mph * 1.60934);
+				} else {
+					maxspeed = parseInt(maxspeed);
+				}
+
+				if (!isNaN(maxspeed) && maxspeed > 0) {
+					state.currentSpeedLimit = maxspeed;
+					state.speedLimitCache.set(cacheKey, maxspeed);
+					updateSpeedDisplay();
+				}
+			}
+		}
+	} catch (error) {
+		console.error("Error fetching speed limit:", error);
+	}
+}
+
 // Center map on a lat/lng with vertical offset so the user sees more ahead
 function centerOnLatLngWithOffset(latlng, zoom, animationOptions = {}) {
 	if (!state.map || !latlng) return;
@@ -2353,6 +2493,10 @@ function resetApp() {
 	state.hasReachedStart = false;
 	state.currentRouteIndex = 0;
 	state.maxRouteIndexReached = 0;
+	state.currentSpeed = 0;
+	state.currentSpeedLimit = null;
+	state.lastSpeedUpdate = 0;
+	state.speedLimitCache.clear();
 	state.autoCenterEnabled = true;
 	state.startMarker = null;
 	state.endMarker = null;
@@ -2371,6 +2515,12 @@ function resetApp() {
 	document.getElementById("upload-section").classList.remove("hidden");
 	document.getElementById("gpx-file-input").value = "";
 	document.getElementById("file-info").textContent = "";
+
+	// Hide speed indicator
+	const speedIndicator = document.getElementById("speed-indicator");
+	if (speedIndicator) {
+		speedIndicator.classList.add("hidden");
+	}
 
 	// Reset to test centre selection
 	goBackToTestCentres();

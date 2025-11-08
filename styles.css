@@ -477,6 +477,83 @@ body {
 	color: #666;
 }
 
+/* Speed Limit Indicator */
+.speed-indicator {
+	position: fixed;
+	top: 90px;
+	left: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	z-index: 1001;
+	pointer-events: none;
+}
+
+.speed-limit-display {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.speed-limit-circle {
+	width: 70px;
+	height: 70px;
+	border-radius: 50%;
+	background: white;
+	border: 5px solid #e3342f;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+	font-weight: 700;
+	font-size: 32px;
+	color: #1a1a1a;
+}
+
+.current-speed-display {
+	background: rgba(255, 255, 255, 0.95);
+	backdrop-filter: blur(10px);
+	padding: 8px 16px;
+	border-radius: 20px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+	display: flex;
+	align-items: baseline;
+	justify-content: center;
+	gap: 4px;
+}
+
+#current-speed-value {
+	font-size: 24px;
+	font-weight: 700;
+	color: #1a1a1a;
+}
+
+.speed-unit {
+	font-size: 12px;
+	font-weight: 500;
+	color: #666;
+}
+
+.speed-indicator.speeding #current-speed-value {
+	color: #e3342f;
+}
+
+.speed-indicator.speeding .speed-limit-circle {
+	animation: pulse-red 1s ease-in-out infinite;
+}
+
+@keyframes pulse-red {
+	0%,
+	100% {
+		border-color: #e3342f;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+	}
+	50% {
+		border-color: #ff6b6b;
+		box-shadow: 0 2px 12px rgba(227, 52, 47, 0.4);
+	}
+}
+
 /* Control buttons container */
 .control-buttons-container {
 	position: fixed;
@@ -1074,5 +1151,26 @@ body {
 	.modal-icon svg {
 		width: 32px;
 		height: 32px;
+	}
+
+	/* Adjust speed indicator for mobile */
+	.speed-indicator {
+		top: 80px;
+		left: 10px;
+	}
+
+	.speed-limit-circle {
+		width: 60px;
+		height: 60px;
+		border: 4px solid #e3342f;
+		font-size: 28px;
+	}
+
+	.current-speed-display {
+		padding: 6px 12px;
+	}
+
+	#current-speed-value {
+		font-size: 20px;
 	}
 }
