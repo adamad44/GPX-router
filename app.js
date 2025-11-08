@@ -13,6 +13,7 @@ const state = {
 	previewRouteDecorator: null,
 	isNavigating: false,
 	hasReachedStart: false,
+	routeLockedIn: false, // User has confirmed they want to start the route (one-way mode)
 	watchId: null,
 	autoCenterEnabled: true,
 	startMarker: null,
@@ -195,6 +196,10 @@ function initializeEventListeners() {
 	const downloadGpxButton = document.getElementById("download-gpx-button");
 	const downloadAllButton = document.getElementById("download-all-button");
 
+	// Route start confirmation modal buttons
+	const startRouteBtn = document.getElementById("start-route-btn");
+	const dismissRouteBtn = document.getElementById("dismiss-route-btn");
+
 	// Simulation controls
 	const speedSlider = document.getElementById("speed-slider");
 	const speedValue = document.getElementById("speed-value");
@@ -233,6 +238,11 @@ function initializeEventListeners() {
 		downloadGpxButton.addEventListener("click", downloadSingleGpx);
 	if (downloadAllButton)
 		downloadAllButton.addEventListener("click", downloadAllGpx);
+
+	// Route start confirmation listeners
+	if (startRouteBtn) startRouteBtn.addEventListener("click", confirmStartRoute);
+	if (dismissRouteBtn)
+		dismissRouteBtn.addEventListener("click", dismissStartRouteModal);
 
 	// Simulation listeners
 	if (speedSlider) {
@@ -1046,6 +1056,7 @@ function startNavigation() {
 
 	// Reset navigation state for new route
 	state.hasReachedStart = false;
+	state.routeLockedIn = false;
 	state.currentRouteIndex = 0;
 	state.maxRouteIndexReached = 0;
 	state.approachRoute = [];
@@ -1117,6 +1128,36 @@ function showLocationModal() {
 function closeLocationModal() {
 	document.getElementById("location-modal").classList.add("hidden");
 	updateStatusText("Location access denied. Please enable to navigate.");
+}
+
+// Show Route Start Confirmation Modal
+function showRouteStartModal() {
+	document.getElementById("route-start-modal").classList.remove("hidden");
+}
+
+// Close Route Start Confirmation Modal
+function closeRouteStartModal() {
+	document.getElementById("route-start-modal").classList.add("hidden");
+}
+
+// Confirm starting the route (lock into one-way mode)
+function confirmStartRoute() {
+	state.routeLockedIn = true;
+	state.currentRouteIndex = 0;
+	state.maxRouteIndexReached = 0;
+	closeRouteStartModal();
+	updateStatusText("Route locked in - following one-way progression");
+	console.log("🔒 Route locked in - one-way navigation mode activated");
+}
+
+// Dismiss the route start modal (user not ready yet)
+function dismissStartRouteModal() {
+	closeRouteStartModal();
+	updateStatusText(
+		`At route start - ${formatDistance(
+			calculateDistance(state.userPosition, state.gpxRoute[0])
+		)} away`
+	);
 }
 
 // Request Location Permission
@@ -1872,46 +1913,56 @@ async function updateNavigation() {
 	const startPoint = state.gpxRoute[0];
 	const distanceToStart = calculateDistance(state.userPosition, startPoint);
 
-	// Check if user has reached the start point
+	// Check if user has reached the start point for the first time
 	if (!state.hasReachedStart && distanceToStart <= START_POINT_THRESHOLD) {
 		state.hasReachedStart = true;
-		state.approachRoute = [];
-		// Initialize route tracking at the start
-		state.currentRouteIndex = 0;
-		state.maxRouteIndexReached = 0;
-		updateStatusText("Following GPX route - locked to one-way progression");
+		// Show confirmation modal to lock into the route
+		showRouteStartModal();
+		updateStatusText(
+			`Ready to start - ${formatDistance(distanceToStart)} from start`
+		);
+		return;
 	}
 
-	// If not at start, get route to start
-	if (!state.hasReachedStart && distanceToStart > START_POINT_THRESHOLD) {
-		updateStatusText(
-			`Navigating to route start (${formatDistance(distanceToStart)})`
-		);
-		await updateApproachRoute();
-	} else {
-		// Following GPX route with one-way progression
-		const progress = findNearestPointOnRoute(state.userPosition, state.gpxRoute);
-
-		// Check if user is significantly off-route
-		if (progress.distance > OFF_ROUTE_THRESHOLD) {
-			// User is off-route - guide them back to their current position on route
+	// If user hasn't locked into the route yet, just navigate to start
+	if (!state.routeLockedIn) {
+		if (distanceToStart > START_POINT_THRESHOLD) {
+			// User moved away from start without locking in
+			state.hasReachedStart = false;
 			updateStatusText(
-				`Off route - navigating back (${formatDistance(progress.distance)} away)`
+				`Navigating to route start (${formatDistance(distanceToStart)})`
 			);
-			await updateRerouteToCurrentPosition(progress.index);
+			await updateApproachRoute();
 		} else {
-			// User is on route - show normal status
-			const remainingDistance = calculateRemainingDistance(
-				progress.index,
-				state.gpxRoute
-			);
+			// At start point but not locked in yet
 			updateStatusText(
-				`On route - ${formatDistance(remainingDistance)} remaining`
+				`At route start - ready to begin (${formatDistance(distanceToStart)})`
 			);
-			// Clear any reroute when back on route
-			state.approachRoute = [];
-			updateVisibleRoute(progress.index);
+			await updateApproachRoute();
 		}
+		return;
+	}
+
+	// Route is locked in - enforce one-way navigation
+	const progress = findNearestPointOnRoute(state.userPosition, state.gpxRoute);
+
+	// Check if user is significantly off-route
+	if (progress.distance > OFF_ROUTE_THRESHOLD) {
+		// User is off-route - guide them back to the route ahead of their current position
+		updateStatusText(
+			`Off route - navigating back (${formatDistance(progress.distance)} away)`
+		);
+		await updateRerouteToCurrentPosition(progress.index);
+	} else {
+		// User is on route - show normal status
+		const remainingDistance = calculateRemainingDistance(
+			progress.index,
+			state.gpxRoute
+		);
+		updateStatusText(`On route - ${formatDistance(remainingDistance)} remaining`);
+		// Clear any reroute when back on route
+		state.approachRoute = [];
+		updateVisibleRoute(progress.index);
 	}
 }
 
@@ -1920,14 +1971,31 @@ async function updateRerouteToCurrentPosition(routeIndex) {
 	if (!state.userPosition || state.gpxRoute.length === 0) return;
 
 	const start = state.userPosition;
-	// Route to the current progress point, not the beginning
-	const targetPoint = state.gpxRoute[routeIndex];
+
+	// When locked in, always route to a point ahead on the route, never backward
+	// Use the max of current index to prevent routing backward
+	let targetIndex = routeIndex;
+	if (state.routeLockedIn) {
+		targetIndex = Math.max(routeIndex, state.currentRouteIndex);
+
+		// Look ahead to find a good rejoin point (not too close, easier to route to)
+		const LOOK_AHEAD_POINTS = 10; // Look 10 points ahead for a better rejoin point
+		targetIndex = Math.min(
+			targetIndex + LOOK_AHEAD_POINTS,
+			state.gpxRoute.length - 1
+		);
+	}
+
+	const targetPoint = state.gpxRoute[targetIndex];
 
 	console.log(
 		"🗺️ Calculating reroute from",
 		start,
 		"to route at index",
-		routeIndex
+		targetIndex,
+		"(locked in:",
+		state.routeLockedIn,
+		")"
 	);
 
 	try {
@@ -1936,15 +2004,15 @@ async function updateRerouteToCurrentPosition(routeIndex) {
 			console.log("✅ Reroute calculated:", route.length, "points");
 			state.approachRoute = route;
 
-			// Combine reroute with remaining GPX route from current position
-			const remainingRoute = state.gpxRoute.slice(routeIndex);
+			// Combine reroute with remaining GPX route from target position
+			const remainingRoute = state.gpxRoute.slice(targetIndex);
 			const combinedRoute = [...state.approachRoute, ...remainingRoute];
 			displayRoute(combinedRoute, "#F59E0B"); // Orange color for rerouting
 		}
 	} catch (error) {
 		console.error("Error getting reroute:", error);
-		// Fallback: draw straight line to current position
-		const remainingRoute = state.gpxRoute.slice(routeIndex);
+		// Fallback: draw straight line to target position
+		const remainingRoute = state.gpxRoute.slice(targetIndex);
 		const combinedRoute = [state.userPosition, ...remainingRoute];
 		displayRoute(combinedRoute, "#F59E0B"); // Orange color for rerouting
 	}
@@ -2147,8 +2215,8 @@ function displayRoute(fullRoute, color) {
 
 // Find Nearest Point on Route (One-way progression)
 function findNearestPointOnRoute(position, route) {
-	if (!state.hasReachedStart) {
-		// Before starting the route, just find the absolute nearest point
+	if (!state.routeLockedIn) {
+		// Before locking into the route, just find the absolute nearest point
 		let minDistance = Infinity;
 		let nearestIndex = 0;
 
@@ -2163,12 +2231,12 @@ function findNearestPointOnRoute(position, route) {
 		return { index: nearestIndex, distance: minDistance };
 	}
 
-	// Once we've started the route, enforce one-way progression
-	// Define a search window: look ahead from current position, and allow small backward tolerance
-	const BACKWARD_TOLERANCE = 5; // Allow going back max 5 points (in case of GPS drift)
+	// Once route is locked in, enforce strict one-way forward progression
+	// This prevents backward jumps when roads overlap or loop back
+	const BACKWARD_TOLERANCE = 3; // Minimal backward tolerance for GPS drift only
 	const FORWARD_SEARCH_WINDOW = 200; // Search ahead up to 200 points
 
-	// Calculate search bounds
+	// Calculate search bounds - heavily favor forward direction
 	const searchStart = Math.max(0, state.currentRouteIndex - BACKWARD_TOLERANCE);
 	const searchEnd = Math.min(
 		route.length - 1,
@@ -2178,7 +2246,7 @@ function findNearestPointOnRoute(position, route) {
 	let minDistance = Infinity;
 	let nearestIndex = state.currentRouteIndex; // Default to current position
 
-	// Search within the forward window
+	// Search within the forward-focused window
 	for (let i = searchStart; i <= searchEnd; i++) {
 		const distance = calculateDistance(position, route[i]);
 		if (distance < minDistance) {
@@ -2187,19 +2255,24 @@ function findNearestPointOnRoute(position, route) {
 		}
 	}
 
-	// Only allow forward progression or small backward movements
-	// Update the current index if we've moved forward
+	// Only allow forward progression when locked in
+	// Small backward movements are only allowed within tight tolerance for GPS drift
 	if (nearestIndex >= state.currentRouteIndex) {
+		// Forward progression - update both indices
 		state.currentRouteIndex = nearestIndex;
 		state.maxRouteIndexReached = Math.max(
 			state.maxRouteIndexReached,
 			nearestIndex
 		);
-	} else {
-		// Allow small backward movement (within tolerance) for GPS drift
-		// but don't update maxRouteIndexReached
+	} else if (
+		nearestIndex >= searchStart &&
+		nearestIndex < state.currentRouteIndex
+	) {
+		// Very small backward movement within tolerance - likely GPS drift
+		// Allow it but don't update maxRouteIndexReached
 		state.currentRouteIndex = nearestIndex;
 	}
+	// If nearestIndex is before searchStart, ignore it completely (too far back)
 
 	return { index: nearestIndex, distance: minDistance };
 }
@@ -2410,6 +2483,7 @@ function resetApp() {
 	state.previewRouteDecorator = null;
 	state.isNavigating = false;
 	state.hasReachedStart = false;
+	state.routeLockedIn = false;
 	state.currentRouteIndex = 0;
 	state.maxRouteIndexReached = 0;
 	state.currentSpeed = 0;

@@ -192,6 +192,36 @@
 				</div>
 			</div>
 
+			<!-- Route Start Confirmation Modal -->
+			<div id="route-start-modal" class="modal hidden">
+				<div class="modal-content">
+					<div class="modal-icon">
+						<svg
+							width="48"
+							height="48"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
+							<path d="M5 3l14 9-14 9V3z"></path>
+						</svg>
+					</div>
+					<h2>Ready to Start Route?</h2>
+					<p>You've reached the starting point of the route.</p>
+					<p class="modal-note">
+						Once started, the route will be locked in one-way navigation mode. If you
+						miss a turn, the app will guide you back to the route.
+					</p>
+					<button id="start-route-btn" class="modal-button primary">
+						Yes, Start Route
+					</button>
+					<button id="dismiss-route-btn" class="modal-button secondary">
+						Not Yet
+					</button>
+				</div>
+			</div>
+
 			<!-- Navigation Section -->
 			<div id="navigation-section" class="section hidden">
 				<!-- Map Container -->
