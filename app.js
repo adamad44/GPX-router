@@ -11,11 +11,15 @@ document.addEventListener("DOMContentLoaded", () => {
 		endMarker: null,
 		userMarker: null,
 		osrmRoute: null,
+		pinpointMarker: null,
+		pinpointRouteId: null,
 		watchId: null,
 		isNavigating: false,
 		isRouting: false,
 		autoCenter: true,
 		lastCoords: null,
+		lastRouteFetchTime: null,
+		isPinpointMode: false,
 	};
 
 	// DOM elements
@@ -25,6 +29,8 @@ document.addEventListener("DOMContentLoaded", () => {
 	const uploadBtn = document.getElementById("uploadBtn");
 	const centerBtn = document.getElementById("centerBtn");
 	const gpxFileInput = document.getElementById("gpxFileInput");
+	const modeBtn = document.getElementById("modeBtn");
+	const modeLabel = document.querySelector(".mode-label");
 
 	// Update status banner
 	function updateStatus(text, className) {
@@ -231,20 +237,41 @@ document.addEventListener("DOMContentLoaded", () => {
 	function fetchOSRMRoute() {
 		if (!state.userLocation || !state.gpxData.start) return;
 
+		// Rate limiting: don't fetch more than once every 30 seconds
+		const now = Date.now();
+		if (state.lastRouteFetchTime && now - state.lastRouteFetchTime < 30000) {
+			return;
+		}
+
 		const userLngLat = state.userLocation.join(",");
 		const startLngLat = state.gpxData.start.join(",");
 
 		const url = `http://router.project-osrm.org/route/v1/driving/${userLngLat};${startLngLat}?overview=full&geometries=geojson`;
 
+		state.lastRouteFetchTime = now;
+		updateStatus("Routing to Start... (fetching)", "routing");
+
 		fetch(url)
-			.then((response) => response.json())
+			.then((response) => {
+				if (!response.ok) {
+					throw new Error(`OSRM API error: ${response.status}`);
+				}
+				return response.json();
+			})
 			.then((data) => {
 				if (data.routes && data.routes.length > 0) {
 					drawOSRMRoute(data.routes[0].geometry);
+					updateStatus("Routing to Start... (route shown)", "routing");
+				} else {
+					throw new Error("No route returned from OSRM");
 				}
 			})
 			.catch((error) => {
 				console.error("OSRM routing error:", error);
+				updateStatus("Routing Error (See Console)", "error");
+				// Reset routing flag to allow retry after delay
+				state.isRouting = false;
+				state.lastRouteFetchTime = null;
 			});
 	}
 
@@ -451,6 +478,168 @@ document.addEventListener("DOMContentLoaded", () => {
 		return el;
 	}
 
+	// Switch between GPX and Pinpoint modes
+	function switchMode() {
+		state.isPinpointMode = !state.isPinpointMode;
+		uploadBtn.style.display = state.isPinpointMode ? "none" : "flex";
+
+		if (state.isPinpointMode) {
+			// Enter Pinpoint Mode
+			cleanupGPXMode();
+			modeLabel.textContent = "Pinpoint Mode";
+			modeBtn.title = "Switch to GPX Mode";
+			modeBtn.querySelector("i").className = "fas fa-route";
+			updateStatus("Pinpoint Mode - Click map to set destination", "");
+			setupPinpointMapClick();
+		} else {
+			// Enter GPX Mode
+			cleanupPinpointMode();
+			modeLabel.textContent = "GPX Mode";
+			modeBtn.title = "Switch to Pinpoint Mode";
+			modeBtn.querySelector("i").className = "fas fa-map-pin";
+			updateStatus("GPX Mode - Upload GPX file to begin", "");
+		}
+	}
+
+	// Cleanup GPX mode when switching to pinpoint
+	function cleanupGPXMode() {
+		state.isNavigating = false;
+		state.isRouting = false;
+		removeOSRMRoute();
+		// Keep GPX line and markers visible but disable navigation logic
+	}
+
+	// Cleanup pinpoint mode
+	function cleanupPinpointMode() {
+		// Remove pinpoint marker
+		if (state.pinpointMarker) {
+			state.pinpointMarker.remove();
+			state.pinpointMarker = null;
+		}
+		// Remove pinpoint route
+		if (state.pinpointRouteId && state.map.getLayer(state.pinpointRouteId)) {
+			state.map.removeLayer(state.pinpointRouteId);
+		}
+		if (state.map.getSource("pinpoint-route")) {
+			state.map.removeSource("pinpoint-route");
+		}
+		state.pinpointRouteId = null;
+		state.isNavigating = false;
+		state.autoCenter = true;
+	}
+
+	// Create pinpoint marker element
+	function createPinpointMarkerElement() {
+		const el = document.createElement("div");
+		el.className = "marker-pinpoint";
+		el.title = "Destination Pin";
+		return el;
+	}
+
+	// Fetch OSRM route from user location to pinpoint destination
+	function fetchPinpointRoute(destinationCoord) {
+		if (!state.userLocation) return;
+
+		// Rate limiting
+		const now = Date.now();
+		if (state.lastRouteFetchTime && now - state.lastRouteFetchTime < 30000) {
+			return;
+		}
+
+		const userLngLat = state.userLocation.join(",");
+		const destLngLat = destinationCoord.join(",");
+
+		const url = `http://router.project-osrm.org/route/v1/driving/${userLngLat};${destLngLat}?overview=full&geometries=geojson`;
+
+		state.lastRouteFetchTime = now;
+		updateStatus("Navigating to Pin...", "navigating");
+		state.isNavigating = true;
+		state.autoCenter = true;
+
+		fetch(url)
+			.then((response) => {
+				if (!response.ok) {
+					throw new Error(`OSRM API error: ${response.status}`);
+				}
+				return response.json();
+			})
+			.then((data) => {
+				if (data.routes && data.routes.length > 0) {
+					drawPinpointRoute(data.routes[0].geometry);
+				} else {
+					throw new Error("No route returned from OSRM");
+				}
+			})
+			.catch((error) => {
+				console.error("OSRM routing error:", error);
+				updateStatus("Routing Error (See Console)", "error");
+				state.lastRouteFetchTime = null;
+			});
+	}
+
+	// Draw pinpoint route on map
+	function drawPinpointRoute(geometry) {
+		// Remove existing pinpoint route
+		if (state.pinpointRouteId && state.map.getLayer(state.pinpointRouteId)) {
+			state.map.removeLayer(state.pinpointRouteId);
+		}
+		if (state.map.getSource("pinpoint-route")) {
+			state.map.removeSource("pinpoint-route");
+		}
+
+		// Add route source and layer
+		state.map.addSource("pinpoint-route", {
+			type: "geojson",
+			data: {
+				type: "Feature",
+				geometry: geometry,
+			},
+		});
+
+		state.map.addLayer({
+			id: "pinpoint-route",
+			type: "line",
+			source: "pinpoint-route",
+			layout: {
+				"line-join": "round",
+				"line-cap": "round",
+			},
+			paint: {
+				"line-color": "#9C27B0",
+				"line-width": 5,
+				"line-opacity": 0.8,
+			},
+		});
+
+		state.pinpointRouteId = "pinpoint-route";
+	}
+
+	// Setup map click listener for pinpoint mode
+	function setupPinpointMapClick() {
+		state.map.once("click", function handlePinpointClick(e) {
+			if (!state.userLocation || !state.isPinpointMode) return;
+
+			const clickedCoord = e.lngLat.toArray();
+
+			// Clean previous pinpoint data
+			cleanupPinpointMode();
+
+			// Add pinpoint marker
+			state.pinpointMarker = new maplibregl.Marker({
+				element: createPinpointMarkerElement(),
+				anchor: "center",
+			})
+				.setLngLat(clickedCoord)
+				.addTo(state.map);
+
+			// Fetch route to clicked point
+			fetchPinpointRoute(clickedCoord);
+
+			// Re-enable click listener after this one completes
+			setTimeout(() => setupPinpointMapClick(), 100);
+		});
+	}
+
 	// Event Listeners
 	uploadBtn.addEventListener("click", () => {
 		gpxFileInput.click();
@@ -472,6 +661,10 @@ document.addEventListener("DOMContentLoaded", () => {
 			state.autoCenter = true;
 			centerBtn.innerHTML = '<i class="fas fa-location-arrow"></i>';
 		}
+	});
+
+	modeBtn.addEventListener("click", () => {
+		switchMode();
 	});
 
 	// Initialize the app
