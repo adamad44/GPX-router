@@ -119,22 +119,23 @@ document.addEventListener("DOMContentLoaded", () => {
 				// Auto-center if enabled
 				if (state.autoCenter && state.map) {
 					state.map.setCenter(state.userLocation);
+					// Always apply pitch for 3D effect
+					state.map.setPitch(45);
+					// Apply bearing if we have a heading or calculated bearing
 					if (state.userHeading !== null) {
 						state.map.setBearing(state.userHeading);
-						state.map.setPitch(45);
 					}
 				}
 
 				// Store last coords for bearing calculation
 				if (state.lastCoords) {
-					// Calculate bearing if heading is null
-					if (state.userHeading === null) {
-						const bearing = calculateBearing(state.lastCoords, state.userLocation);
-						if (bearing !== null) {
-							state.userHeading = bearing;
-							if (state.isNavigating && state.autoCenter) {
-								state.map.setBearing(bearing);
-							}
+					// Calculate bearing from movement to update heading
+					const bearing = calculateBearing(state.lastCoords, state.userLocation);
+					if (bearing !== null) {
+						state.userHeading = bearing;
+						// Apply bearing to map for "heading up" navigation
+						if (state.autoCenter && state.map) {
+							state.map.setBearing(bearing);
 						}
 					}
 				}
