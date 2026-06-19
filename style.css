@@ -137,13 +137,13 @@ body {
 	display: none !important;
 }
 
-/* Map controls styling - ensure controls are visible above map */
+/* Map controls styling - push below the status banner */
 .maplibregl-ctrl-top-right {
+	top: 60px !important;
 	right: 10px !important;
-	top: 10px !important;
 }
 .maplibregl-ctrl-top-right .maplibregl-ctrl {
-	margin: 15px 15px 0 0;
+	margin: 0;
 	border-radius: 8px;
 	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }

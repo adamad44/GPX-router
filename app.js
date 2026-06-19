@@ -149,10 +149,13 @@ document.addEventListener("DOMContentLoaded", () => {
 		);
 	}
 
-	// Calculate bearing between two coordinates
+	// Calculate bearing between two coordinates (input: [lng, lat] degrees)
 	function calculateBearing(coord1, coord2) {
-		const [lon1, lat1] = coord1;
-		const [lon2, lat2] = coord2;
+		const toRad = (deg) => (deg * Math.PI) / 180;
+		const lon1 = toRad(coord1[0]);
+		const lat1 = toRad(coord1[1]);
+		const lon2 = toRad(coord2[0]);
+		const lat2 = toRad(coord2[1]);
 
 		const y = Math.sin(lon2 - lon1) * Math.cos(lat2);
 		const x =
