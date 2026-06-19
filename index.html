@@ -1,365 +1,40 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 	<head>
 		<meta charset="UTF-8" />
-		<meta
-			name="viewport"
-			content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no, viewport-fit=cover"
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>GPX Navigation App</title>
+		<link
+			href="https://unpkg.com/maplibre-gl@3.0.0/dist/maplibre-gl.css"
+			rel="stylesheet"
 		/>
-		<meta name="apple-mobile-web-app-capable" content="yes" />
-		<meta
-			name="apple-mobile-web-app-status-bar-style"
-			content="black-translucent"
-		/>
-		<meta name="format-detection" content="telephone=no" />
-		<meta name="theme-color" content="#111327" />
-		<title>GPX Navigator</title>
-
-		<!-- MapLibre GL JS - Modern vector tile mapping engine -->
+		<link rel="stylesheet" href="style.css" />
+		<script src="https://unpkg.com/maplibre-gl@3.0.0/dist/maplibre-gl.js"></script>
 		<link
 			rel="stylesheet"
-			href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"
+			href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
 		/>
-		<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
-
-		<link rel="stylesheet" href="styles.css" />
 	</head>
 	<body>
-		<div id="app">
-			<!-- Landing Page -->
-			<div id="upload-section" class="section">
-				<div class="landing-container">
-					<header class="landing-header">
-						<h1 class="app-title">GPX Navigator</h1>
-						<p class="app-subtitle">
-							Turn-by-turn navigation for driving test routes
-						</p>
-					</header>
+		<div id="map"></div>
 
-					<!-- Test Centre Selection -->
-					<div class="test-centre-section">
-						<h2 class="section-title">Select Test Centre</h2>
-						<div id="test-centre-list" class="test-centre-list">
-							<!-- Test centres will be loaded here -->
-						</div>
-					</div>
-
-					<!-- Route Selection (shown after centre selected) -->
-					<div id="route-section" class="route-section hidden">
-						<div class="section-header">
-							<button id="back-button" class="back-button">
-								<svg
-									width="20"
-									height="20"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="2"
-								>
-									<line x1="19" y1="12" x2="5" y2="12"></line>
-									<polyline points="12 19 5 12 12 5"></polyline>
-								</svg>
-								Back
-							</button>
-							<h2 class="section-title" id="route-section-title">Routes</h2>
-						</div>
-						<div id="route-list" class="route-list">
-							<!-- Routes will be loaded here -->
-						</div>
-						<button id="download-all-button" class="download-all-button hidden">
-							<svg
-								width="20"
-								height="20"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-							>
-								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-								<polyline points="7 10 12 15 17 10"></polyline>
-								<line x1="12" y1="15" x2="12" y2="3"></line>
-							</svg>
-							Download All Routes
-						</button>
-					</div>
-
-					<div class="divider">
-						<span>or</span>
-					</div>
-
-					<!-- Custom Upload -->
-					<div class="custom-upload">
-						<input type="file" id="gpx-file-input" accept=".gpx" />
-						<label for="gpx-file-input" class="upload-button">
-							<svg
-								width="20"
-								height="20"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-							>
-								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-								<polyline points="17 8 12 3 7 8"></polyline>
-								<line x1="12" y1="3" x2="12" y2="15"></line>
-							</svg>
-							Upload Custom GPX File
-						</label>
-						<div id="file-info" class="file-info"></div>
-					</div>
-				</div>
-			</div>
-
-			<!-- Route Preview Section -->
-			<div id="route-preview-section" class="section hidden">
-				<div class="preview-header">
-					<button id="preview-back-button" class="back-button">
-						<svg
-							width="20"
-							height="20"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<line x1="19" y1="12" x2="5" y2="12"></line>
-							<polyline points="12 19 5 12 12 5"></polyline>
-						</svg>
-						Back
-					</button>
-					<h2 id="preview-route-name" class="section-title">Route Preview</h2>
-				</div>
-				<div id="preview-map-container">
-					<div id="preview-map"></div>
-				</div>
-				<div class="preview-actions">
-					<button id="download-gpx-button" class="preview-button">
-						<svg
-							width="20"
-							height="20"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-							<polyline points="7 10 12 15 17 10"></polyline>
-							<line x1="12" y1="15" x2="12" y2="3"></line>
-						</svg>
-						Download GPX
-					</button>
-					<button id="start-nav-button" class="preview-button">
-						<svg
-							width="20"
-							height="20"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<path d="M5 3l14 9-14 9V3z"></path>
-						</svg>
-						Start Navigation
-					</button>
-				</div>
-			</div>
-
-			<!-- Location Permission Modal -->
-			<div id="location-modal" class="modal hidden">
-				<div class="modal-content">
-					<div class="modal-icon">
-						<svg
-							width="48"
-							height="48"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-							<circle cx="12" cy="10" r="3"></circle>
-						</svg>
-					</div>
-					<h2>Location Access Required</h2>
-					<p>This app needs access to your location to provide GPS navigation.</p>
-					<p class="modal-note">Your location data never leaves your device.</p>
-					<button id="enable-location-btn" class="modal-button primary">
-						Enable Location
-					</button>
-					<button id="cancel-location-btn" class="modal-button secondary">
-						Cancel
-					</button>
-				</div>
-			</div>
-
-			<!-- Route Start Confirmation Modal -->
-			<div id="route-start-modal" class="modal hidden">
-				<div class="modal-content">
-					<div class="modal-icon">
-						<svg
-							width="48"
-							height="48"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<path d="M5 3l14 9-14 9V3z"></path>
-						</svg>
-					</div>
-					<h2>Ready to Start Route?</h2>
-					<p>You've reached the starting point of the route.</p>
-					<p class="modal-note">
-						Once started, the route will be locked in one-way navigation mode. If you
-						miss a turn, the app will guide you back to the route.
-					</p>
-					<button id="start-route-btn" class="modal-button primary">
-						Yes, Start Route
-					</button>
-					<button id="dismiss-route-btn" class="modal-button secondary">
-						Not Yet
-					</button>
-				</div>
-			</div>
-
-			<!-- Navigation Section -->
-			<div id="navigation-section" class="section hidden">
-				<!-- Map Container -->
-				<div id="map"></div>
-
-				<!-- Navigation UI Elements are now direct children -->
-				<div id="status-bar">
-					<div id="status-text">Waiting for GPS...</div>
-					<div id="distance-info"></div>
-				</div>
-
-				<!-- Current Speed Display -->
-				<div id="speed-indicator" class="speed-indicator hidden">
-					<div class="current-speed-display">
-						<span id="current-speed-value">0</span>
-						<span class="speed-unit">mph</span>
-					</div>
-				</div>
-
-				<div class="control-buttons-container">
-					<button
-						id="toggle-preview-button"
-						class="control-button with-label"
-						title="Show/hide full route preview"
-					>
-						<svg
-							width="16"
-							height="16"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-							<circle cx="12" cy="12" r="3"></circle>
-						</svg>
-						<span class="button-label">Preview</span>
-					</button>
-					<button
-						id="toggle-rotation-button"
-						class="control-button with-label"
-						title="Change map rotation mode"
-					>
-						<svg
-							width="16"
-							height="16"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<circle cx="12" cy="12" r="10"></circle>
-							<polygon points="12,2 10,8 14,8"></polygon>
-						</svg>
-						<span class="button-label">Compass</span>
-					</button>
-					<button
-						id="center-button"
-						class="control-button primary with-label"
-						title="Recenter map on your location"
-					>
-						<svg
-							width="16"
-							height="16"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<circle cx="12" cy="12" r="10"></circle>
-							<circle cx="12" cy="12" r="3"></circle>
-						</svg>
-						<span class="button-label">Recenter</span>
-					</button>
-					<button
-						id="reset-button"
-						class="control-button with-label danger"
-						title="End navigation and choose new route"
-					>
-						<svg
-							width="16"
-							height="16"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<line x1="18" y1="6" x2="6" y2="18"></line>
-							<line x1="6" y1="6" x2="18" y2="18"></line>
-						</svg>
-						<span class="button-label">Exit</span>
-					</button>
-				</div>
-
-				<!-- Simulation Controls -->
-				<div id="simulation-controls" class="hidden">
-					<button id="toggle-simulation-button" class="control-button">
-						<svg
-							id="simulation-icon-play"
-							width="16"
-							height="16"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<polygon points="5 3 19 12 5 21 5 3"></polygon>
-						</svg>
-						<svg
-							id="simulation-icon-pause"
-							class="hidden"
-							width="16"
-							height="16"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<rect x="6" y="4" width="4" height="16"></rect>
-							<rect x="14" y="4" width="4" height="16"></rect>
-						</svg>
-					</button>
-					<div class="slider-container">
-						<label for="speed-slider"
-							>Speed: <span id="speed-value">0</span> mph</label
-						>
-						<input
-							type="range"
-							id="speed-slider"
-							min="0"
-							max="75"
-							value="0"
-							step="1"
-						/>
-					</div>
-				</div>
-			</div>
+		<!-- Status banner -->
+		<div id="statusBanner">
+			<span id="statusText">Awaiting GPX upload</span>
 		</div>
+
+		<!-- Floating buttons container -->
+		<div class="floating-buttons">
+			<button id="uploadBtn" class="floating-btn" title="Upload GPX file">
+				<i class="fas fa-upload"></i>
+			</button>
+			<button id="centerBtn" class="floating-btn" title="Re-center map">
+				<i class="fas fa-location-arrow"></i>
+			</button>
+		</div>
+
+		<!-- Hidden file input -->
+		<input type="file" id="gpxFileInput" accept=".gpx" style="display: none" />
 
 		<script src="app.js"></script>
 	</body>
