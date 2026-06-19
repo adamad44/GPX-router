@@ -246,7 +246,7 @@ document.addEventListener("DOMContentLoaded", () => {
 		const userLngLat = state.userLocation.join(",");
 		const startLngLat = state.gpxData.start.join(",");
 
-		const url = `http://router.project-osrm.org/route/v1/driving/${userLngLat};${startLngLat}?overview=full&geometries=geojson`;
+		const url = `https://router.project-osrm.org/route/v1/driving/${userLngLat};${startLngLat}?overview=full&geometries=geojson`;
 
 		state.lastRouteFetchTime = now;
 		updateStatus("Routing to Start... (fetching)", "routing");
@@ -549,7 +549,7 @@ document.addEventListener("DOMContentLoaded", () => {
 		const userLngLat = state.userLocation.join(",");
 		const destLngLat = destinationCoord.join(",");
 
-		const url = `http://router.project-osrm.org/route/v1/driving/${userLngLat};${destLngLat}?overview=full&geometries=geojson`;
+		const url = `https://router.project-osrm.org/route/v1/driving/${userLngLat};${destLngLat}?overview=full&geometries=geojson`;
 
 		state.lastRouteFetchTime = now;
 		updateStatus("Navigating to Pin...", "navigating");
